@@ -654,27 +654,45 @@ function App() {
     const handleRetireSubmit = (e) => { e.preventDefault(); saveData('settings', retireForm, 'retirement'); setModal(null); };
 
     const openTxModal = (type = 'expense', existingTx = null) => {
-        // ...上面的程式碼不變...
-        if (existingTx) { 
-            // ...編輯模式的程式碼不變...
-        } else { 
-            setEditingTx(null); 
-            setTxForm({ 
-                type, 
-                category: categories[type]?.[0]?.name || '', 
-                subCategory: '', 
-                accountId: viewingAccount?.id || accounts[0]?.id || '', 
-                toAccountId: '', // ✨ 確保目的帳戶被清空
-                toAmount: '',    // ✨ 確保轉帳金額被清空
-                amount: '', 
-                note: '', 
+        if (existingTx) {
+            // 📝 編輯模式：把點擊的這筆「現有資料」原封不動地塞進表單中
+            setEditingTx(existingTx);
+            setTxForm({
+                type: existingTx.type || type,
+                amount: existingTx.amount || '',
+                toAmount: existingTx.toAmount || '',
+                category: existingTx.category || '',
+                subCategory: existingTx.subCategory || '',
+                accountId: existingTx.accountId || '',
+                toAccountId: existingTx.toAccountId || '',
+                debtor: existingTx.debtor || '',
+                date: existingTx.date || getLocalToday(),
+                note: existingTx.note || '',
+                currency: existingTx.currency || 'TWD'
+            });
+            setIsAdvanceSplit(false); 
+            setIsOffset(false); 
+            setSplitData({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' });
+        } else {
+            // ➕ 新增模式：清空所有欄位，準備記新的一筆
+            setEditingTx(null);
+            setTxForm({
+                type,
+                category: categories[type]?.[0]?.name || '',
+                subCategory: '',
+                accountId: viewingAccount?.id || accounts[0]?.id || '',
+                toAccountId: '', 
+                toAmount: '',    
+                amount: '',
+                note: '',
                 date: getLocalToday(),
                 currency: 'TWD',
                 debtor: ''
-            }); 
-            
-            setIsAdvanceSplit(false); setIsOffset(false); setSplitData({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' }); 
-        } 
+            });
+            setIsAdvanceSplit(false); 
+            setIsOffset(false); 
+            setSplitData({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' });
+        }
         setModal('tx');
     };
     
