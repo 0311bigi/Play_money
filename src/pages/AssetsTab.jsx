@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Icon } from '../components/Icon';
 import { safeNum, getLocalToday, getLocalMonth } from '../utils';
 import { ACCOUNT_TYPES } from '../constants';
@@ -10,7 +10,7 @@ export const AssetsTab = ({
     dragItem, dragOverItem, handleSort, openAccModalCorrect, deleteData,
     setHoldingForm, setNewMarketValue, showArchived, setShowArchived
 }) => {
-    // === 內部邏輯處理區 (來自原本的 UI 區塊) ===
+    // === 內部邏輯處理區 ===
     const getRate = (accId) => { const acc = accounts.find(a => a.id === accId); return acc ? (exchangeRates[acc.currency] || 1) : 1; };
     const today = new Date(); const currentMonth = today.getMonth() + 1; 
 
@@ -92,11 +92,83 @@ export const AssetsTab = ({
         aiIcon = "check-circle"; aiColor = "bg-emerald-50 text-emerald-600 border-emerald-200";
     }
 
+    // === 百萬里程碑 (時光倒流運算核心) ===
+    const milestones = useMemo(() => {
+        if (!transactions || transactions.length === 0 || !stats.totalAsset) return [];
+
+        const maxMilestone = Math.floor(stats.totalAsset / 1000000);
+        if (maxMilestone < 1) return [];
+
+        const dailyNetFlow = {};
+        transactions.forEach(tx => {
+            if (!tx.date || tx.type === 'transfer' || tx.type === 'repayment') return; 
+            
+            const date = tx.date;
+            if (!dailyNetFlow[date]) dailyNetFlow[date] = 0;
+            
+            let amt = parseFloat(tx.amount) || 0;
+            if (tx.currency && tx.currency !== 'TWD') {
+                amt = amt * (tx.exchangeRate || 1); 
+            }
+
+            if (tx.type === 'income') dailyNetFlow[date] += amt;
+            else if (tx.type === 'expense') dailyNetFlow[date] -= amt;
+        });
+
+        const sortedDates = Object.keys(dailyNetFlow).sort((a, b) => b.localeCompare(a));
+        let runningAssets = stats.totalAsset;
+        let currentTarget = maxMilestone * 1000000;
+        const achieved = [];
+
+        achieved.push({
+            level: maxMilestone + 1,
+            amount: (maxMilestone + 1) * 1000000,
+            date: '進行中',
+            days: null
+        });
+
+        for (let date of sortedDates) {
+            while (runningAssets >= currentTarget && currentTarget >= 1000000) {
+                 achieved.push({
+                     level: currentTarget / 1000000,
+                     amount: currentTarget,
+                     date: date,
+                     days: 0 
+                 });
+                 currentTarget -= 1000000;
+            }
+            runningAssets -= dailyNetFlow[date];
+        }
+
+        achieved.sort((a, b) => a.level - b.level); 
+
+        for (let i = 0; i < achieved.length; i++) {
+            if (i === 0) {
+                achieved[i].daysText = '🏁 初始累積';
+            } else if (achieved[i].date !== '進行中' && achieved[i-1].date !== '進行中') {
+                const d1 = new Date(achieved[i-1].date);
+                const d2 = new Date(achieved[i].date);
+                const diffTime = Math.abs(d2 - d1);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                achieved[i].days = diffDays;
+                achieved[i].daysText = `${diffDays} 天`;
+                
+                if (i > 1 && typeof achieved[i-1].days === 'number') {
+                    const speedup = achieved[i-1].days - diffDays;
+                    achieved[i].speedup = speedup;
+                }
+            } else if (achieved[i].date === '進行中') {
+                const remaining = achieved[i].amount - stats.totalAsset;
+                achieved[i].daysText = `⏳ 剩餘 $${Math.round(remaining).toLocaleString()}`;
+            }
+        }
+
+        return achieved.reverse(); 
+    }, [transactions, stats.totalAsset]);
+
     const activeAccounts = accounts.filter(a => !a.isArchived);
     const archivedAccounts = accounts.filter(a => a.isArchived);
-    const safeRetireAge = (retirement && retirement.retireAge) ? retirement.retireAge : 60;
-    const safeRetireExpense = (retirement && retirement.monthlyExpense) ? parseFloat(retirement.monthlyExpense) : 30000;
-
+    
     return (
         <div className="animate-in space-y-4">
             <div className="flex justify-between items-center mb-4">
@@ -126,6 +198,42 @@ export const AssetsTab = ({
                     <span>{retirementInsight.text}</span>
                 </div>
             </div>
+
+            {/* 🚀 百萬里程碑面板 */}
+            {milestones.length > 0 && (
+                <div className="bg-white rounded-xl p-5 shadow-sm border border-stone-200">
+                    <div className="flex items-center gap-2 mb-4">
+                        <Icon name="trending-up" className="text-rose-500" />
+                        <h3 className="font-bold text-stone-800">百萬里程碑追蹤</h3>
+                    </div>
+                    
+                    <div className="space-y-3">
+                        {milestones.map((m, idx) => (
+                            <div key={m.level} className={`flex items-center justify-between p-3 rounded-lg ${m.date === '進行中' ? 'bg-stone-50 border-2 border-dashed border-stone-200' : 'bg-stone-50'}`}>
+                                <div>
+                                    <div className="font-bold text-stone-800 text-sm">
+                                        第 {m.level} 桶金 <span className="text-xs font-normal text-stone-500 ml-1">({m.amount / 10000}萬)</span>
+                                    </div>
+                                    <div className="text-xs text-stone-500 mt-0.5">
+                                        {m.date === '進行中' ? '正在努力中...' : m.date}
+                                    </div>
+                                </div>
+                                
+                                <div className="text-right">
+                                    <div className="text-sm font-bold text-stone-700">
+                                        {m.daysText}
+                                    </div>
+                                    {m.speedup !== undefined && (
+                                        <div className={`text-[10px] font-bold mt-0.5 ${m.speedup > 0 ? 'text-emerald-500' : 'text-rose-400'}`}>
+                                            {m.speedup > 0 ? `🚀 縮短 ${m.speedup} 天` : `📉 變慢 ${Math.abs(m.speedup)} 天`}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
             
             <div className={`p-4 rounded-xl border shadow-sm flex gap-3 transition-colors ${aiColor}`}>
                 <div className="shrink-0 mt-1"><Icon name={aiIcon} size={24} /></div>
