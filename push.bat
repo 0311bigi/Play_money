@@ -10,7 +10,17 @@ if %errorlevel% neq 0 (
 )
 
 echo =========================================
-echo 正在將檔案加入版本控制...
+echo 正在發佈網頁到 GitHub Pages...
+echo =========================================
+call npx gh-pages -d dist
+if %errorlevel% neq 0 (
+    echo [錯誤] 發佈到 gh-pages 失敗！
+    pause
+    exit /b
+)
+
+echo =========================================
+echo 正在將原始碼加入版本控制...
 echo =========================================
 git add .
 
@@ -21,12 +31,11 @@ set /p msg="請輸入本次更新訊息: "
 git commit -m "%msg%"
 
 echo =========================================
-echo 正在推送到 GitHub...
+echo 正在推送原始碼到 GitHub (master)...
 echo =========================================
-:: 將 main 改為 master
 git push origin master
 
 echo =========================================
-echo 上傳完成！
+echo 網頁發佈與原始碼備份皆已全部完成！
 echo =========================================
 pause
