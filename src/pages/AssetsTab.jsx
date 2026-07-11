@@ -92,79 +92,71 @@ export const AssetsTab = ({
         aiIcon = "check-circle"; aiColor = "bg-emerald-50 text-emerald-600 border-emerald-200";
     }
 
-    // === 百萬里程碑 (時光倒流運算核心) ===
+    // === 💡 新增：控制里程碑是否展開的狀態 ===
+    const [isMilestoneExpanded, setIsMilestoneExpanded] = React.useState(false);
+
+    // === 百萬里程碑 (手動精準設定 + 天數計算核心) ===
+    const MANUAL_MILESTONES = {
+        1: '2022-10-01',
+        2: '2024-05-01',
+        3: '2025-08-01',
+        4: '2026-04-01',
+    };
+
     const milestones = useMemo(() => {
-        if (!transactions || transactions.length === 0 || !stats.totalAsset) return [];
+        if (!stats.totalAsset) return [];
 
-        const maxMilestone = Math.floor(stats.totalAsset / 1000000);
-        if (maxMilestone < 1) return [];
+        const bucketSize = 1000000;
+        const currentLevel = Math.floor(stats.totalAsset / bucketSize);
+        const nextLevel = currentLevel + 1;
+        const result = [];
 
-        const dailyNetFlow = {};
-        transactions.forEach(tx => {
-            if (!tx.date || tx.type === 'transfer' || tx.type === 'repayment') return; 
+        // 1. 處理已經達成的里程碑
+        for (let i = currentLevel; i >= 1; i--) {
+            const dateStr = MANUAL_MILESTONES[i];
+            const prevDateStr = MANUAL_MILESTONES[i - 1];
+            const prevPrevDateStr = MANUAL_MILESTONES[i - 2];
+
+            let daysTaken = null;
+            let speedDiff = null;
+
+            // 計算花費天數
+            if (dateStr && prevDateStr) {
+                daysTaken = Math.floor((new Date(dateStr) - new Date(prevDateStr)) / 86400000);
+            }
             
-            const date = tx.date;
-            if (!dailyNetFlow[date]) dailyNetFlow[date] = 0;
-            
-            let amt = parseFloat(tx.amount) || 0;
-            if (tx.currency && tx.currency !== 'TWD') {
-                amt = amt * (tx.exchangeRate || 1); 
+            // 計算變快/變慢
+            if (daysTaken !== null && prevDateStr && prevPrevDateStr) {
+                const prevDaysTaken = Math.floor((new Date(prevDateStr) - new Date(prevPrevDateStr)) / 86400000);
+                speedDiff = daysTaken - prevDaysTaken;
             }
 
-            if (tx.type === 'income') dailyNetFlow[date] += amt;
-            else if (tx.type === 'expense') dailyNetFlow[date] -= amt;
-        });
-
-        const sortedDates = Object.keys(dailyNetFlow).sort((a, b) => b.localeCompare(a));
-        let runningAssets = stats.totalAsset;
-        let currentTarget = maxMilestone * 1000000;
-        const achieved = [];
-
-        achieved.push({
-            level: maxMilestone + 1,
-            amount: (maxMilestone + 1) * 1000000,
-            date: '進行中',
-            days: null
-        });
-
-        for (let date of sortedDates) {
-            while (runningAssets >= currentTarget && currentTarget >= 1000000) {
-                 achieved.push({
-                     level: currentTarget / 1000000,
-                     amount: currentTarget,
-                     date: date,
-                     days: 0 
-                 });
-                 currentTarget -= 1000000;
-            }
-            runningAssets -= dailyNetFlow[date];
+            result.push({
+                level: i,
+                status: 'achieved',
+                date: dateStr || '已達成',
+                title: `第 ${i} 桶金`,
+                target: i * bucketSize,
+                daysTaken,
+                speedDiff
+            });
         }
 
-        achieved.sort((a, b) => a.level - b.level); 
+        // 2. 處理「正在努力中」的下一個里程碑
+        const remaining = (nextLevel * bucketSize) - stats.totalAsset;
+        result.unshift({
+            level: nextLevel,
+            status: 'in_progress',
+            remaining: remaining,
+            title: `第 ${nextLevel} 桶金`,
+            target: nextLevel * bucketSize
+        });
 
-        for (let i = 0; i < achieved.length; i++) {
-            if (i === 0) {
-                achieved[i].daysText = '🏁 初始累積';
-            } else if (achieved[i].date !== '進行中' && achieved[i-1].date !== '進行中') {
-                const d1 = new Date(achieved[i-1].date);
-                const d2 = new Date(achieved[i].date);
-                const diffTime = Math.abs(d2 - d1);
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                achieved[i].days = diffDays;
-                achieved[i].daysText = `${diffDays} 天`;
-                
-                if (i > 1 && typeof achieved[i-1].days === 'number') {
-                    const speedup = achieved[i-1].days - diffDays;
-                    achieved[i].speedup = speedup;
-                }
-            } else if (achieved[i].date === '進行中') {
-                const remaining = achieved[i].amount - stats.totalAsset;
-                achieved[i].daysText = `⏳ 剩餘 $${Math.round(remaining).toLocaleString()}`;
-            }
-        }
+        return result;
+    }, [stats.totalAsset]);
 
-        return achieved.reverse(); 
-    }, [transactions, stats.totalAsset]);
+    // 💡 決定畫面顯示：折疊時只顯示 [0] (也就是進行中的那一筆)
+    const displayMilestones = isMilestoneExpanded ? milestones : (milestones.length > 0 ? [milestones[0]] : []);
 
     const activeAccounts = accounts.filter(a => !a.isArchived);
     const archivedAccounts = accounts.filter(a => a.isArchived);
@@ -201,34 +193,58 @@ export const AssetsTab = ({
 
             {/* 🚀 百萬里程碑面板 */}
             {milestones.length > 0 && (
-                <div className="bg-white rounded-xl p-5 shadow-sm border border-stone-200">
-                    <div className="flex items-center gap-2 mb-4">
-                        <Icon name="trending-up" className="text-rose-500" />
-                        <h3 className="font-bold text-stone-800">百萬里程碑追蹤</h3>
+                <div className="bg-white rounded-xl shadow-sm border border-stone-100 overflow-hidden mb-6">
+                    <div 
+                        className="p-4 flex items-center justify-between cursor-pointer hover:bg-stone-50 transition-colors border-b border-stone-50"
+                        onClick={() => setIsMilestoneExpanded(!isMilestoneExpanded)}
+                    >
+                        <h3 className="font-bold text-stone-700 flex items-center gap-2 text-sm">
+                            <Icon name="trending-up" size={16} className="text-rose-500" /> 
+                            百萬里程碑追蹤
+                        </h3>
+                        <button className="text-stone-400 flex items-center gap-1 text-xs font-bold hover:text-stone-600 transition-colors">
+                            {isMilestoneExpanded ? '收起紀錄' : '展開過去紀錄'}
+                            <Icon name={isMilestoneExpanded ? "chevron-up" : "chevron-down"} size={16} />
+                        </button>
                     </div>
-                    
-                    <div className="space-y-3">
-                        {milestones.map((m, idx) => (
-                            <div key={m.level} className={`flex items-center justify-between p-3 rounded-lg ${m.date === '進行中' ? 'bg-stone-50 border-2 border-dashed border-stone-200' : 'bg-stone-50'}`}>
-                                <div>
-                                    <div className="font-bold text-stone-800 text-sm">
-                                        第 {m.level} 桶金 <span className="text-xs font-normal text-stone-500 ml-1">({m.amount / 10000}萬)</span>
-                                    </div>
-                                    <div className="text-xs text-stone-500 mt-0.5">
-                                        {m.date === '進行中' ? '正在努力中...' : m.date}
-                                    </div>
-                                </div>
-                                
-                                <div className="text-right">
-                                    <div className="text-sm font-bold text-stone-700">
-                                        {m.daysText}
-                                    </div>
-                                    {m.speedup !== undefined && (
-                                        <div className={`text-[10px] font-bold mt-0.5 ${m.speedup > 0 ? 'text-emerald-500' : 'text-rose-400'}`}>
-                                            {m.speedup > 0 ? `🚀 縮短 ${m.speedup} 天` : `📉 變慢 ${Math.abs(m.speedup)} 天`}
+
+                    <div className="p-4 space-y-3">
+                        {displayMilestones.map((m) => (
+                            <div key={m.level} className={`p-4 rounded-xl border ${m.status === 'in_progress' ? 'border-dashed border-rose-200 bg-rose-50/30' : 'border-stone-100 bg-stone-50/50'}`}>
+                                {m.status === 'in_progress' ? (
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <div className="font-bold text-stone-800">
+                                                {m.title} <span className="text-xs text-stone-400 font-normal">({safeNum(m.target / 10000)}萬)</span>
+                                            </div>
+                                            <div className="text-xs text-stone-400 mt-1">正在努力中...</div>
                                         </div>
-                                    )}
-                                </div>
+                                        <div className="text-sm font-bold text-stone-700 flex items-center gap-1">
+                                            <Icon name="hourglass" size={14} className="text-amber-500" /> 
+                                            剩餘 ${safeNum(m.remaining)}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <div className="font-bold text-stone-800">
+                                                {m.title} <span className="text-xs text-stone-400 font-normal">({safeNum(m.target / 10000)}萬)</span>
+                                            </div>
+                                            <div className="text-xs text-stone-400 mt-1">{m.date}</div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="text-sm font-bold text-stone-700">
+                                                {m.daysTaken === null ? '※ 初始累積' : `${m.daysTaken} 天`}
+                                            </div>
+                                            {m.speedDiff !== null && (
+                                                <div className={`text-[10px] flex items-center justify-end gap-0.5 mt-0.5 ${m.speedDiff <= 0 ? 'text-emerald-500' : 'text-rose-400'}`}>
+                                                    <Icon name={m.speedDiff <= 0 ? "trending-down" : "trending-up"} size={10} />
+                                                    {m.speedDiff <= 0 ? `變快 ${Math.abs(m.speedDiff)} 天` : `變慢 ${m.speedDiff} 天`}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>
