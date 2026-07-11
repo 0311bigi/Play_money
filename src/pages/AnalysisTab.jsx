@@ -17,12 +17,12 @@ export const AnalysisTab = ({
             <h2 className="text-xl font-bold text-stone-800 px-1">收支分析</h2>
             <div className="bg-white rounded-xl p-4 shadow-sm border border-stone-100 space-y-3">
                 <div className="flex justify-between items-center bg-stone-50 rounded-lg p-1">
-                    <button onClick={()=>changeMonthStep(-1)} className="p-2 text-stone-400"><Icon name="chevron-left"/></button>
+                    <button onClick={()=>changeMonthStep(analysisMode === 'year' ? -12 : -1)} className="p-2 text-stone-400"><Icon name="chevron-left"/></button>
                     <div className="relative">
                         <span className="font-bold text-stone-700">{analysisMode === 'year' ? `${currentLedgerMonth.split('-')[0]}年` : `${currentLedgerMonth.replace('-','年 ')}月`}</span>
                         <input type="month" className="absolute inset-0 opacity-0 w-full h-full cursor-pointer" value={currentLedgerMonth} onChange={e=>setCurrentLedgerMonth(e.target.value)} />
                     </div>
-                    <button onClick={()=>changeMonthStep(1)} className="p-2 text-stone-400"><Icon name="chevron-right"/></button>
+                    <button onClick={()=>changeMonthStep(analysisMode === 'year' ? 12 : 1)} className="p-2 text-stone-400"><Icon name="chevron-right"/></button>
                 </div>
                 <div className="flex bg-stone-100 p-1 rounded-lg">
                     <button onClick={()=>setAnalysisType('expense')} className={`flex-1 py-2 text-sm font-bold rounded-md ${analysisType==='expense'?'bg-white text-rose-500 shadow':'text-stone-400'}`}>支出</button>

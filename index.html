@@ -18,8 +18,8 @@
     </script>
 
     <link rel="manifest" id="my-manifest">
-    <link rel="icon" href="/money.png">      
-    <link rel="apple-touch-icon" href="/money.png"> 
+    <link rel="icon" href="./money.png">      
+    <link rel="apple-touch-icon" href="./money.png"> 
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="退休計劃">
@@ -28,9 +28,13 @@
 
     <script>
         (function() {
-            var currentUrl = window.location.href.split('?')[0]; 
-            var baseUrl = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1) || currentUrl;
-            var iconUrl = new URL('money.png', baseUrl).href; 
+            // 修正 2：更聰明地判斷路徑，確保在 GitHub Pages 上不會漏掉 /Play_money/
+            var origin = window.location.origin;
+            var pathname = window.location.pathname;
+            var basePath = pathname.includes('/Play_money') ? '/Play_money/' : '/';
+            
+            var currentUrl = origin + basePath;
+            var iconUrl = currentUrl + 'money.png'; 
 
             var manifest = {
                 "name": "退休計劃",

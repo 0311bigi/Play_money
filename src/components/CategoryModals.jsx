@@ -46,13 +46,9 @@ export const CategoryEditModal = ({
                     <Icon name={editingCategory.icon} size={24} className="text-rose-500"/>
                     <input className="font-bold text-xl bg-transparent border-b border-stone-300 focus:border-rose-500 outline-none w-full py-1" value={editingCategory.name} onChange={(e) => handleEditMainCategoryName(e.target.value)}/>
                 </div>
-                <div className="mb-4 h-24 overflow-y-auto grid grid-cols-6 gap-2 p-2 bg-stone-50 rounded border border-stone-100">
-                    {AVAILABLE_ICONS.map(icon => (
-                        <button key={icon} onClick={() => handleEditMainCategoryIcon(icon)} className={`p-2 rounded hover:bg-stone-200 transition-colors ${editingCategory.icon === icon ? 'bg-rose-100 text-rose-500' : 'text-stone-400'}`}>
-                            <Icon name={icon} size={18}/>
-                        </button>
-                    ))}
-                </div>
+                
+                {/* 🗑️ 這裡原本的圖示選擇網格 (AVAILABLE_ICONS.map) 已經被徹底移除了！ */}
+
                 <div className="flex flex-wrap gap-2 mb-4 max-h-32 overflow-y-auto">
                     {editingCategory.subs.map(s => (
                         <span key={s} className="bg-stone-100 px-3 py-1 rounded-full text-sm flex items-center gap-1 text-stone-600 border border-stone-200">
