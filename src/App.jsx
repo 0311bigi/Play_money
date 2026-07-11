@@ -163,14 +163,20 @@ function App() {
 
     useEffect(() => {
         if (!sdkReady) return;
-        const unsubAuth = fbRef.current.onAuthStateChanged(authRef.current, async (u) => {
-            if (u) setUser(u);
-            else {
-                try { await fbRef.current.signInAnonymously(authRef.current); }
-                catch (e) { setError({ title:"登入失敗", message: "請開啟匿名登入或檢查網域授權" }); setLoading(false); }
-            }
-        });
-        return () => unsubAuth();
+        
+        // 1. 強制設定本地持久化，讓瀏覽器記住這個匿名使用者
+        fbRef.current.setPersistence(authRef.current, fbRef.current.browserLocalPersistence || 'local')
+            .then(() => {
+                // 2. 監聽登入狀態
+                const unsubAuth = fbRef.current.onAuthStateChanged(authRef.current, async (u) => {
+                    if (u) setUser(u);
+                    else {
+                        try { await fbRef.current.signInAnonymously(authRef.current); }
+                        catch (e) { setError({ title:"登入失敗", message: "請檢查網域授權" }); setLoading(false); }
+                    }
+                });
+            })
+            .catch(console.error);
     }, [sdkReady]);
 
     const handleGoogleLogin = async () => { 
@@ -268,15 +274,16 @@ function App() {
                     const data = d.data();
                     if (data.categories) setCategories(data.categories); 
                     if (data.budget) setMonthlyBudget(data.budget); 
-                } else fbRef.current.setDoc(fbRef.current.doc(userRef, 'settings', 'config'), { categories: DEFAULT_CATS }, {merge: true}); 
+                } 
+                // 🛑 已移除 else 的自動 setDoc，找不到資料就會乖乖用 React 預設值
             }),
             fbRef.current.onSnapshot(fbRef.current.doc(userRef, 'settings', 'rates'), d => { 
                 if(d.exists()) setExchangeRates(d.data()); 
-                else fbRef.current.setDoc(fbRef.current.doc(userRef, 'settings', 'rates'), DEFAULT_RATES, {merge: true}); 
+                // 🛑 已移除 else 的自動寫入
             }),
             fbRef.current.onSnapshot(fbRef.current.doc(userRef, 'settings', 'retirement'), d => { 
                 if(d.exists()) setRetirement(d.data()); 
-                else fbRef.current.setDoc(fbRef.current.doc(userRef, 'settings', 'retirement'), retirement, {merge: true}); 
+                // 🛑 已移除 else 的自動寫入
             }),
             fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'recurring'), s => {
                 const r = s.docs.map(d=>({id:d.id,...d.data()}));

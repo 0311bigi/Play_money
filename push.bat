@@ -1,5 +1,10 @@
 @echo off
 echo =========================================
+echo [安全檢查] 確保目前在開發分支 (master)...
+echo =========================================
+git checkout master
+
+echo =========================================
 echo 正在執行專案建置 (npm run build)...
 echo =========================================
 call npm run build
@@ -12,7 +17,7 @@ if %errorlevel% neq 0 (
 echo =========================================
 echo 正在發佈網頁到 GitHub Pages...
 echo =========================================
-call npx gh-pages -d dist
+call npx gh-pages -d dist -b gh-pages
 if %errorlevel% neq 0 (
     echo [錯誤] 發佈到 gh-pages 失敗！
     pause
