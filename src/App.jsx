@@ -163,20 +163,14 @@ function App() {
 
     useEffect(() => {
         if (!sdkReady) return;
-        
-        // 1. 強制設定本地持久化，讓瀏覽器記住這個匿名使用者
-        fbRef.current.setPersistence(authRef.current, fbRef.current.browserLocalPersistence || 'local')
-            .then(() => {
-                // 2. 監聽登入狀態
-                const unsubAuth = fbRef.current.onAuthStateChanged(authRef.current, async (u) => {
-                    if (u) setUser(u);
-                    else {
-                        try { await fbRef.current.signInAnonymously(authRef.current); }
-                        catch (e) { setError({ title:"登入失敗", message: "請檢查網域授權" }); setLoading(false); }
-                    }
-                });
-            })
-            .catch(console.error);
+        const unsubAuth = fbRef.current.onAuthStateChanged(authRef.current, async (u) => {
+            if (u) setUser(u);
+            else {
+                try { await fbRef.current.signInAnonymously(authRef.current); }
+                catch (e) { setError({ title:"登入失敗", message: "請檢查網域授權" }); setLoading(false); }
+            }
+        });
+        return () => unsubAuth();
     }, [sdkReady]);
 
     const handleGoogleLogin = async () => { 
