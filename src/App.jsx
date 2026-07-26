@@ -163,14 +163,22 @@ function App() {
 
     useEffect(() => {
         if (!sdkReady) return;
-        const unsubAuth = fbRef.current.onAuthStateChanged(authRef.current, async (u) => {
-            if (u) setUser(u);
-            else {
-                try { await fbRef.current.signInAnonymously(authRef.current); }
-                catch (e) { setError({ title:"登入失敗", message: "請檢查網域授權" }); setLoading(false); }
-            }
-        });
-        return () => unsubAuth();
+        let unsubAuth;
+        
+        // 🛡️ 強制設定最高級別的本地持久化，讓登入狀態永久保存在手機裡
+        fbRef.current.setPersistence(authRef.current, fbRef.current.browserLocalPersistence)
+            .then(() => {
+                unsubAuth = fbRef.current.onAuthStateChanged(authRef.current, async (u) => {
+                    if (u) setUser(u);
+                    else {
+                        try { await fbRef.current.signInAnonymously(authRef.current); }
+                        catch (e) { setError({ title:"登入失敗", message: "請檢查網域授權" }); setLoading(false); }
+                    }
+                });
+            })
+            .catch(console.error);
+
+        return () => { if (unsubAuth) unsubAuth(); };
     }, [sdkReady]);
 
     const handleGoogleLogin = async () => { 
@@ -190,7 +198,9 @@ function App() {
             let hasUpd = false;
             cards.forEach(c => {
                 if (c.lastAutoPaymentMonth !== m && new Date().getDate() >= parseInt(c.paymentDueDay||15)) {
-                    batch.set(fbRef.current.doc(fbRef.current.collection(userRef, 'transactions')), {
+                    // 使用 auto_信用卡ID_月份 作為專屬 ID
+                    const customAutoRef = fbRef.current.doc(fbRef.current.collection(userRef, 'transactions'), `auto_${c.id}_${m}`);
+                    batch.set(customAutoRef, {
                         type: 'transfer', amount: 0, category: '自動繳款', accountId: c.autoPaymentAccount, toAccountId: c.id, date: getLocalToday(), bookId: 'main', note: `[系統] 卡費 (${c.name})`, createdAt: new Date().toISOString()
                     });
                     batch.update(fbRef.current.doc(userRef, 'accounts', c.id), { lastAutoPaymentMonth: m });
@@ -237,7 +247,8 @@ function App() {
                         createdAt: new Date().toISOString()
                     };
                     
-                    batch.set(fbRef.current.doc(fbRef.current.collection(userRef, 'transactions')), newTx);
+                    const customTxRef = fbRef.current.doc(fbRef.current.collection(userRef, 'transactions'), `rec_${r.id}_${m}`);
+                    batch.set(customTxRef, newTx);
                     batch.update(fbRef.current.doc(userRef, 'recurring', r.id), { lastCreatedMonth: m });
                     hasUpd = true;
                 }

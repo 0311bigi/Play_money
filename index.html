@@ -86,12 +86,16 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
         import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, addDoc, deleteDoc, updateDoc, setDoc, query, where, writeBatch, getDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+        
+        // 👇 這裡補上了 setPersistence 和 browserLocalPersistence
+        import { getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
         
         window.FirebaseSDK = { 
             initializeApp, getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, 
             collection, doc, onSnapshot, addDoc, deleteDoc, updateDoc, setDoc, query, where, writeBatch, getDoc, 
-            getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut 
+            getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut,
+            // 👇 這裡也要把它們輸出給 App.js 使用
+            setPersistence, browserLocalPersistence
         };
         window.isFirebaseSDKReady = true;
     </script>
