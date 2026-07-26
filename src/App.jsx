@@ -453,6 +453,10 @@ function App() {
         
         const amt = parseFloat(finalAmtStr);
         if (!amt) { alert('請輸入金額或完成計算'); return; }
+        
+        // 🛡️ 增加連線狀態防呆
+        if (!user) { alert('連線狀態異常，請重新整理網頁確保已登入！'); return; }
+
         if (txForm.type === 'transfer') {
             if (!txForm.accountId || !txForm.toAccountId) { alert('請選擇轉出與轉入帳戶'); return; }
         } else {
@@ -473,7 +477,7 @@ function App() {
             ...txForm, bookId: currentBook.id, amount: amt, category: finalCategory, 
             createdAt, exchangeRate: currentRate
         };
-		// 🛡️ ✅ 在這裡補上這段殺毒防呆邏輯！
+
         if (base.type !== 'transfer') {
             delete base.toAccountId;
             delete base.toAmount;
@@ -482,6 +486,11 @@ function App() {
         Object.keys(base).forEach(key => { if (base[key] === undefined) delete base[key]; });
         delete base.balanceSnapshot; delete base.change; delete base.displayType; delete base.id; 
 
+        // 🚀 關鍵魔法：不管三七二十一，先關閉視窗與清空狀態！讓畫面瞬間流暢！
+        setModal(null);
+        setEditingTx(null);
+
+        // 接著讓 Firebase 在背景慢慢處理資料
         try {
             if (editingTx) {
                 if (txForm.type === 'expense' && isAdvanceSplit) {
@@ -499,13 +508,13 @@ function App() {
                     const cleanBase = { ...base }; delete cleanBase.id;
                     await saveData('transactions', cleanBase, editingTx.id);
                 }
-                setModal(null); setEditingTx(null); return;
+                return;
             }
 
             if (isOffset && offsetTargetId) {
                 await saveData('transactions', { ...base, accountId: OFFSET_ACCOUNT_ID, note: `抵扣: ${txForm.note}` }); 
                 await saveData('transactions', { type: 'repayment', amount: amt, accountId: OFFSET_ACCOUNT_ID, relatedTxId: offsetTargetId, date: txForm.date, bookId: currentBook.id, note: `抵扣支出 (${finalCategory})`, createdAt: new Date().toISOString() }); 
-                setModal(null); return;
+                return;
             }
 
             if (txForm.type === 'expense' && installment.enabled) {
@@ -557,8 +566,10 @@ function App() {
             } else {
                 await saveData('transactions', base);
             }
-            setModal(null);
-        } catch (e) { alert("儲存失敗"); }
+        } catch (e) { 
+            console.error("儲存失敗", e); 
+            alert("背景儲存發生異常: " + e.message);
+        }
     };
 
     const handleRecurringSave = async () => {
