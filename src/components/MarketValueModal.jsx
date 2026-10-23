@@ -10,6 +10,16 @@ export const MarketValueModal = ({
     const currentSum = holdingForm.length > 0 ? holdingForm.reduce((s, h) => s + (parseFloat(h.price)||0), 0) : (parseFloat(newMarketValue) || 0);
     const rate = exchangeRates[editTarget.currency] || 1;
 
+    // 💡 處理上下移動順序
+    const moveHolding = (idx, direction) => {
+        const targetIdx = idx + direction;
+        if (targetIdx < 0 || targetIdx >= holdingForm.length) return;
+        const updated = [...holdingForm];
+        const [movedItem] = updated.splice(idx, 1);
+        updated.splice(targetIdx, 0, movedItem);
+        setHoldingForm(updated);
+    };
+
     return (
         <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-md p-6 rounded-2xl max-h-[90vh] overflow-y-auto flex flex-col">
@@ -25,11 +35,30 @@ export const MarketValueModal = ({
                 <div className="flex-1 overflow-y-auto mb-4">
                     <div className="space-y-3">
                         {holdingForm.map((h, idx) => (
-                            <div key={idx} className="flex gap-2 items-center">
-                                <input placeholder="代號" className="w-[30%] p-1.5 border rounded-lg text-sm font-bold uppercase" value={h.symbol} onChange={e => { const n=[...holdingForm]; n[idx].symbol=e.target.value; setHoldingForm(n); }}/>
-                                <input type="number" placeholder="股數" className="w-[25%] p-1.5 border rounded-lg text-sm" value={h.qty} onChange={e => { const n=[...holdingForm]; n[idx].qty=e.target.value; setHoldingForm(n); }}/>
+                            <div key={idx} className="flex gap-1.5 items-center">
+                                <input placeholder="代號" className="w-[28%] p-1.5 border rounded-lg text-sm font-bold uppercase" value={h.symbol} onChange={e => { const n=[...holdingForm]; n[idx].symbol=e.target.value; setHoldingForm(n); }}/>
+                                <input type="number" placeholder="股數" className="w-[22%] p-1.5 border rounded-lg text-sm" value={h.qty} onChange={e => { const n=[...holdingForm]; n[idx].qty=e.target.value; setHoldingForm(n); }}/>
                                 <input type="number" placeholder="市值" className="flex-1 p-1.5 border rounded-lg text-sm font-bold" value={h.price} onChange={e => { const n=[...holdingForm]; n[idx].price=e.target.value; setHoldingForm(n); }}/>
-                                <button onClick={() => setHoldingForm(holdingForm.filter((_, i) => i !== idx))} className="text-stone-300 hover:text-red-500"><Icon name="x" size={18}/></button>
+                                
+                                {/* 💡 上下移動按鈕區 */}
+                                <div className="flex flex-col">
+                                    <button 
+                                        onClick={() => moveHolding(idx, -1)} 
+                                        disabled={idx === 0}
+                                        className={`p-0.5 ${idx === 0 ? 'text-stone-200' : 'text-stone-400 hover:text-stone-700'}`}
+                                    >
+                                        <Icon name="chevron-up" size={12}/>
+                                    </button>
+                                    <button 
+                                        onClick={() => moveHolding(idx, 1)} 
+                                        disabled={idx === holdingForm.length - 1}
+                                        className={`p-0.5 ${idx === holdingForm.length - 1 ? 'text-stone-200' : 'text-stone-400 hover:text-stone-700'}`}
+                                    >
+                                        <Icon name="chevron-down" size={12}/>
+                                    </button>
+                                </div>
+
+                                <button onClick={() => setHoldingForm(holdingForm.filter((_, i) => i !== idx))} className="text-stone-300 hover:text-red-500 p-1"><Icon name="x" size={18}/></button>
                             </div>
                         ))}
                     </div>

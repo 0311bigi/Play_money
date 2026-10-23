@@ -20,7 +20,6 @@ import { AssetsTab } from './pages/AssetsTab';
 import { HomeTab } from './pages/HomeTab';
 import { getLocalToday, getLocalMonth, addMonths, getDayOfWeek, safeNum } from './utils';
 
-
 function App() {
     const [sdkReady, setSdkReady] = useState(false);
     const [needConfig, setNeedConfig] = useState(false);
@@ -165,7 +164,6 @@ function App() {
         if (!sdkReady) return;
         let unsubAuth;
         
-        // 🛡️ 強制設定最高級別的本地持久化，讓登入狀態永久保存在手機裡
         fbRef.current.setPersistence(authRef.current, fbRef.current.browserLocalPersistence)
             .then(() => {
                 unsubAuth = fbRef.current.onAuthStateChanged(authRef.current, async (u) => {
@@ -198,7 +196,6 @@ function App() {
             let hasUpd = false;
             cards.forEach(c => {
                 if (c.lastAutoPaymentMonth !== m && new Date().getDate() >= parseInt(c.paymentDueDay||15)) {
-                    // 使用 auto_信用卡ID_月份 作為專屬 ID
                     const customAutoRef = fbRef.current.doc(fbRef.current.collection(userRef, 'transactions'), `auto_${c.id}_${m}`);
                     batch.set(customAutoRef, {
                         type: 'transfer', amount: 0, category: '自動繳款', accountId: c.autoPaymentAccount, toAccountId: c.id, date: getLocalToday(), bookId: 'main', note: `[系統] 卡費 (${c.name})`, createdAt: new Date().toISOString()
@@ -280,15 +277,12 @@ function App() {
                     if (data.categories) setCategories(data.categories); 
                     if (data.budget) setMonthlyBudget(data.budget); 
                 } 
-                // 🛑 已移除 else 的自動 setDoc，找不到資料就會乖乖用 React 預設值
             }),
             fbRef.current.onSnapshot(fbRef.current.doc(userRef, 'settings', 'rates'), d => { 
                 if(d.exists()) setExchangeRates(d.data()); 
-                // 🛑 已移除 else 的自動寫入
             }),
             fbRef.current.onSnapshot(fbRef.current.doc(userRef, 'settings', 'retirement'), d => { 
                 if(d.exists()) setRetirement(d.data()); 
-                // 🛑 已移除 else 的自動寫入
             }),
             fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'recurring'), s => {
                 const r = s.docs.map(d=>({id:d.id,...d.data()}));
@@ -429,7 +423,6 @@ function App() {
         } catch(e) { alert("排序發生錯誤"); }
     };
     
-    // 🧠 呼叫獨立出去的大腦，拿回所有計算與統計結果
     const {
         stats, retireProgress, retirementInsight, homeInsight,
         analysisData, groupedTransactions, trendData, accountDetailData
@@ -454,7 +447,6 @@ function App() {
         const amt = parseFloat(finalAmtStr);
         if (!amt) { alert('請輸入金額或完成計算'); return; }
         
-        // 🛡️ 增加連線狀態防呆
         if (!user) { alert('連線狀態異常，請重新整理網頁確保已登入！'); return; }
 
         if (txForm.type === 'transfer') {
@@ -486,11 +478,10 @@ function App() {
         Object.keys(base).forEach(key => { if (base[key] === undefined) delete base[key]; });
         delete base.balanceSnapshot; delete base.change; delete base.displayType; delete base.id; 
 
-        // 🚀 關鍵魔法：不管三七二十一，先關閉視窗與清空狀態！讓畫面瞬間流暢！
+        // 🚀 先關閉視窗，提供極速流暢的反饋！
         setModal(null);
         setEditingTx(null);
 
-        // 接著讓 Firebase 在背景慢慢處理資料
         try {
             if (editingTx) {
                 if (txForm.type === 'expense' && isAdvanceSplit) {
@@ -517,12 +508,20 @@ function App() {
                 return;
             }
 
-            if (txForm.type === 'expense' && installment.enabled) {
-                const p = parseInt(installment.periods);
+            // 💡 修正後的分期邏輯：確保第一期補足無條件捨去帶來的金額誤差！
+            if (txForm.type === 'expense' && installment?.enabled) {
+                const p = parseInt(installment.periods) || 3;
                 const per = Math.round(amt / p);
+                const firstPer = amt - (per * (p - 1));
                 const promises = []; 
                 for (let i = 0; i < p; i++) {
-                    promises.push(saveData('transactions', { ...base, amount: (i===0?amt-(per*p)+per:per), date: addMonths(txForm.date, i), note: `${txForm.note} (${i+1}/${p})`, createdAt: new Date().toISOString() }));
+                    promises.push(saveData('transactions', { 
+                        ...base, 
+                        amount: (i === 0 ? firstPer : per), 
+                        date: addMonths(txForm.date, i), 
+                        note: `${txForm.note ? txForm.note + ' ' : ''}(${i + 1}/${p}期)`, 
+                        createdAt: new Date().toISOString() 
+                    }));
                 }
                 await Promise.all(promises); 
             } else if (txForm.type === 'expense' && isAdvanceSplit) {
@@ -626,7 +625,7 @@ function App() {
             const amount = amountMatch ? amountMatch[0] : '';
             let note = transcript.replace(amountMatch ? amountMatch[0] : '', '').replace(/元|塊/g, '').trim();
             let matchedCategory = txForm.category; let matchedSubCategory = '';
-            const keywordMap = { '飲食': ['吃', '飯', '麵', '餐', '喝', '飲料', '全聯', '7-11', '便當'], '交通': ['車', '油', '捷運', '高鐵', '悠 ময়卡', '加油'], '購物': ['買', '蝦皮', '衣服', '鞋', '衛生紙'], '娛樂': ['電影', '遊戲', '玩', 'Netflix'], '居住': ['電費', '水費', '房租', '瓦斯'] };
+            const keywordMap = { '飲食': ['吃', '飯', '麵', '餐', '喝', '飲料', '全聯', '7-11', '便當'], '交通': ['車', '油', '捷運', '高鐵', '悠遊卡', '加油'], '購物': ['買', '蝦皮', '衣服', '鞋', '衛生紙'], '娛樂': ['電影', '遊戲', '玩', 'Netflix'], '居住': ['電費', '水費', '房租', '瓦斯'] };
             if (categories[txForm.type]) {
                 for (const cat of categories[txForm.type]) {
                     if (note.includes(cat.name) || (keywordMap[cat.name] && keywordMap[cat.name].some(k => note.includes(k)))) { matchedCategory = cat.name; break; }
@@ -678,7 +677,6 @@ function App() {
 
     const openTxModal = (type = 'expense', existingTx = null) => {
         if (existingTx) {
-            // 📝 編輯模式：把點擊的這筆「現有資料」原封不動地塞進表單中
             setEditingTx(existingTx);
             setTxForm({
                 type: existingTx.type || type,
@@ -696,8 +694,8 @@ function App() {
             setIsAdvanceSplit(false); 
             setIsOffset(false); 
             setSplitData({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' });
+            setInstallment({ enabled: false, periods: 3 }); // 💡 補上清空分期
         } else {
-            // ➕ 新增模式：清空所有欄位，準備記新的一筆
             setEditingTx(null);
             setTxForm({
                 type,
@@ -715,6 +713,7 @@ function App() {
             setIsAdvanceSplit(false); 
             setIsOffset(false); 
             setSplitData({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' });
+            setInstallment({ enabled: false, periods: 3 }); // 💡 補上清空分期
         }
         setModal('tx');
     };
@@ -824,13 +823,8 @@ function App() {
         );
     }
 
-    const safeBudget = monthlyBudget ? parseFloat(monthlyBudget) : 0;
-    const safeRetireAge = (retirement && retirement.retireAge) ? retirement.retireAge : 60;
-    const safeRetireExpense = (retirement && retirement.monthlyExpense) ? parseFloat(retirement.monthlyExpense) : 30000;
-
     return (
         <div className="min-h-screen pb-24 max-w-xl mx-auto bg-stone-50 relative">
-            
             {viewingAccount ? (
                 <div className="animate-in slide-in-from-right">
                     <header className="sticky top-0 z-20 bg-white border-b border-stone-100 px-6 py-4 flex justify-between items-center shadow-sm">
@@ -866,8 +860,8 @@ function App() {
                                     <button
                                         onClick={() => {
                                             const defaultBank = accounts.find(a => a.name.includes('永豐') && !a.isArchived) 
-                                                                    || accounts.find(a => a.type === 'bank' && !a.isArchived)
-                                                                    || accounts.find(a => a.type === 'cash' && !a.isArchived);
+                                                                || accounts.find(a => a.type === 'bank' && !a.isArchived)
+                                                                || accounts.find(a => a.type === 'cash' && !a.isArchived);
                                             let billAmount = 0;
                                             if (accountDetailData && accountDetailData.displayList && accountDetailData.displayList.length > 0) {
                                                 billAmount = Math.abs(accountDetailData.displayList[0].balanceSnapshot);
@@ -907,20 +901,20 @@ function App() {
                         </div>
                         
                         <TransactionList 
-                         accountDetailData={accountDetailData}
-                         isReconcileMode={isReconcileMode}
-                         openTxModal={openTxModal}
-                         toggleReconcile={toggleReconcile}
-                         getCategoryIcon={getCategoryIcon}
-                         handleReorder={handleReorder}
-                         deleteData={deleteData}
+                            accountDetailData={accountDetailData}
+                            isReconcileMode={isReconcileMode}
+                            openTxModal={openTxModal}
+                            toggleReconcile={toggleReconcile}
+                            getCategoryIcon={getCategoryIcon}
+                            handleReorder={handleReorder}
+                            deleteData={deleteData}
                         />
                         <button onClick={() => openTxModal('expense')} className="fixed bottom-8 right-6 bg-rose-500 text-white p-4 rounded-full shadow-xl z-30 transition-transform active:scale-95 border-4 border-stone-50"><Icon name="plus" size={32} /></button>
                     </div>
                 </div>
             ) : (
                 <React.Fragment>
-				<Header currentBook={currentBook} setIsBookSelectOpen={()=>setModal('bookSelect')} user={user} handleGoogleLogin={handleGoogleLogin} />
+                    <Header currentBook={currentBook} setIsBookSelectOpen={()=>setModal('bookSelect')} user={user} handleGoogleLogin={handleGoogleLogin} />
                     
                     <main className="p-4 space-y-6">
                         {activeTab === 'home' && (
@@ -984,58 +978,57 @@ function App() {
                             />
                         )}
 
-                            {activeTab === 'debts' && (
-                              <DebtsTab 
-                                  stats={stats}
-                                  transactions={transactions}
-                                  getRemainingDebt={getRemainingDebt}
-                                  setSettleTargetTx={setSettleTargetTx}
-                                  setSettleDate={setSettleDate}
-                                  setModal={setModal}
-                                  handleVoidAdvance={handleVoidAdvance}
-                              />
-                            )}
-                            
-                        </main>
-                        
-                        <nav className="fixed bottom-0 w-full bg-white border-t border-stone-200 px-6 py-3 flex justify-between z-[100] pb-safe max-w-xl mx-auto left-0 right-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-                            <NavBtn icon={<Icon name="home"/>} label="帳本" active={activeTab==='home'} onClick={()=>setActiveTab('home')}/>
-                            <NavBtn icon={<Icon name="pie-chart"/>} label="分析" active={activeTab==='analysis'} onClick={()=>setActiveTab('analysis')}/>
-                            <NavBtn icon={<Icon name="credit-card"/>} label="待收" active={activeTab==='debts'} onClick={()=>setActiveTab('debts')}/>
-                            <NavBtn icon={<Icon name="landmark"/>} label="帳戶" active={activeTab==='assets'} onClick={()=>setActiveTab('assets')}/>
-                            <NavBtn icon={<Icon name="settings"/>} label="設定" active={activeTab==='settings'} onClick={()=>setActiveTab('settings')}/>
-                        </nav>
-                        
-                        {activeTab === 'home' && (
-                            <button onClick={()=>openTxModal('expense')} className="fixed bottom-24 right-6 bg-gradient-to-r from-orange-500 to-rose-500 text-white p-4 rounded-full shadow-lg z-[100] transition-transform active:scale-95 border-2 border-white">
-                                <Icon name="plus" size={32}/>
-                            </button>
+                        {activeTab === 'debts' && (
+                            <DebtsTab 
+                                stats={stats}
+                                transactions={transactions}
+                                getRemainingDebt={getRemainingDebt}
+                                setSettleTargetTx={setSettleTargetTx}
+                                setSettleDate={setSettleDate}
+                                setModal={setModal}
+                                handleVoidAdvance={handleVoidAdvance}
+                            />
                         )}
+                    </main>
+                    
+                    <nav className="fixed bottom-0 w-full bg-white border-t border-stone-200 px-6 py-3 flex justify-between z-[100] pb-safe max-w-xl mx-auto left-0 right-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                        <NavBtn icon={<Icon name="home"/>} label="帳本" active={activeTab==='home'} onClick={()=>setActiveTab('home')}/>
+                        <NavBtn icon={<Icon name="pie-chart"/>} label="分析" active={activeTab==='analysis'} onClick={()=>setActiveTab('analysis')}/>
+                        <NavBtn icon={<Icon name="credit-card"/>} label="待收" active={activeTab==='debts'} onClick={()=>setActiveTab('debts')}/>
+                        <NavBtn icon={<Icon name="landmark"/>} label="帳戶" active={activeTab==='assets'} onClick={()=>setActiveTab('assets')}/>
+                        <NavBtn icon={<Icon name="settings"/>} label="設定" active={activeTab==='settings'} onClick={()=>setActiveTab('settings')}/>
+                    </nav>
+                    
+                    {activeTab === 'home' && (
+                        <button onClick={()=>openTxModal('expense')} className="fixed bottom-24 right-6 bg-gradient-to-r from-orange-500 to-rose-500 text-white p-4 rounded-full shadow-lg z-[100] transition-transform active:scale-95 border-2 border-white">
+                            <Icon name="plus" size={32}/>
+                        </button>
+                    )}
                 </React.Fragment>
             )}
 
             {modal === 'tx' && (
-             <TransactionModal
-                 txForm={txForm} setTxForm={setTxForm}
-                 categories={categories} accounts={accounts} exchangeRates={exchangeRates} stats={stats}
-                 isOffset={isOffset} setIsOffset={setIsOffset} offsetTargetId={offsetTargetId} setOffsetTargetId={setOffsetTargetId}
-                 installment={installment} setInstallment={setInstallment}
-                 isAdvanceSplit={isAdvanceSplit} setIsAdvanceSplit={setIsAdvanceSplit} splitData={splitData} setSplitData={setSplitData}
-                 updateAdvanceRow={updateAdvanceRow} removeAdvanceRow={removeAdvanceRow} addAdvanceRow={addAdvanceRow}
-                 handleVoiceInput={handleVoiceInput} handleTxSave={handleTxSave}
-                 setModal={setModal} setEditingCategory={setEditingCategory} setEditingCategoryType={setEditingCategoryType}
-             />
+                <TransactionModal
+                    txForm={txForm} setTxForm={setTxForm}
+                    categories={categories} accounts={accounts} exchangeRates={exchangeRates} stats={stats}
+                    isOffset={isOffset} setIsOffset={setIsOffset} offsetTargetId={offsetTargetId} setOffsetTargetId={setOffsetTargetId}
+                    installment={installment} setInstallment={setInstallment}
+                    isAdvanceSplit={isAdvanceSplit} setIsAdvanceSplit={setIsAdvanceSplit} splitData={splitData} setSplitData={setSplitData}
+                    updateAdvanceRow={updateAdvanceRow} removeAdvanceRow={removeAdvanceRow} addAdvanceRow={addAdvanceRow}
+                    handleVoiceInput={handleVoiceInput} handleTxSave={handleTxSave}
+                    setModal={setModal} setEditingCategory={setEditingCategory} setEditingCategoryType={setEditingCategoryType}
+                />
             )}
             
             {modal === 'acc' && (
-             <AccountModal
-                 editTarget={editTarget}
-                 accForm={accForm}
-                 setAccForm={setAccForm}
-                 handleAccSubmit={handleAccSubmit}
-                 setModal={setModal}
-             />
-            )}                   
+                <AccountModal
+                    editTarget={editTarget}
+                    accForm={accForm}
+                    setAccForm={setAccForm}
+                    handleAccSubmit={handleAccSubmit}
+                    setModal={setModal}
+                />
+            )}                    
             
             {modal === 'recurring' && (
                 <RecurringModal
@@ -1118,12 +1111,9 @@ function App() {
                     settleToAccount={settleToAccount} setSettleToAccount={setSettleToAccount} 
                     accounts={accounts} handleSettle={handleSettle} setModal={setModal} 
                 />
-            )}                       
-            
-            {/* 這是最後一個 Modal (收回代墊) 的結尾 */}
-                
-                    </div> 
-                );
-            } 
+            )}            
+        </div> 
+    );
+} 
 
 export default App;

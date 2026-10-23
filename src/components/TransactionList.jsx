@@ -14,7 +14,7 @@ export const TransactionList = ({
     return (
         <div className="space-y-2">
             <h3 className="text-xs font-bold text-stone-400 uppercase ml-1 mt-4">交易明細 (含餘額)</h3>
-            {(!accountDetailData || accountDetailData.displayList.length === 0) ? (
+            {(!accountDetailData || !accountDetailData.displayList || accountDetailData.displayList.length === 0) ? (
                 <div className="text-center py-10 text-stone-400 text-sm">本月無交易</div>
             ) : (
                 <React.Fragment>
@@ -27,9 +27,9 @@ export const TransactionList = ({
                             <div className="bg-white rounded-xl shadow-sm border border-stone-100 overflow-hidden">
                                 {group.txs.map((tx, idx) => (
                                     <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-3 flex justify-between items-center cursor-pointer hover:bg-stone-50 group ${idx !== group.txs.length - 1 ? 'border-b border-stone-100' : ''}`}>
-                                        <div className="flex items-center gap-3 overflow-hidden">
+                                        <div className="flex items-center gap-3 overflow-hidden min-w-0">
                                             {isReconcileMode && (
-                                                <div onClick={(e) => toggleReconcile(tx.id, tx.isReconciled, e)} className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors cursor-pointer hover:scale-110 active:scale-95 ${tx.isReconciled ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-stone-300 text-transparent hover:border-emerald-400'}`}>
+                                                <div onClick={(e) => { e.stopPropagation(); toggleReconcile(tx.id, tx.isReconciled, e); }} className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors cursor-pointer hover:scale-110 active:scale-95 ${tx.isReconciled ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-stone-300 text-transparent hover:border-emerald-400'}`}>
                                                     <Icon name="check" size={14}/>
                                                 </div>
                                             )}
@@ -41,16 +41,16 @@ export const TransactionList = ({
                                                     </div>
                                                 )}
                                             </div>
-                                            <div className="min-w-0">
+                                            <div className="min-w-0 flex-1">
                                                 <p className="font-bold text-sm text-stone-800 truncate">
                                                     {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')}
                                                     {tx.subCategory && <span className="text-xs text-stone-400 ml-1 font-normal">({tx.subCategory})</span>}
                                                 </p>
-                                                <p className="text-xs text-stone-500 truncate mt-0.5">{tx.note}</p>
+                                                <p className="text-xs text-stone-500 truncate mt-0.5">{tx.note || '無備註'}</p>
                                             </div>
                                         </div>
                                         
-                                        <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-3 shrink-0 ml-2">
                                             <div className="text-right">
                                                 <p className={`font-bold tabular-nums ${tx.change > 0 ? 'text-emerald-600' : 'text-stone-800'}`}>{tx.change > 0 ? '+' : ''}{safeNum(tx.change)}</p>
                                                 <p className="text-[10px] text-stone-400 font-bold mt-0.5 tabular-nums">餘額: ${safeNum(tx.balanceSnapshot)}</p>
@@ -59,10 +59,10 @@ export const TransactionList = ({
                                             <div className="flex flex-col gap-1 pl-2 border-l border-stone-100">
                                                 {group.txs.length > 1 && (
                                                     <div className="flex flex-col">
-                                                        <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleReorder(tx, -1); }} disabled={idx === 0} className={`p-0.5 rounded ${idx === 0 ? 'text-stone-200' : 'text-stone-400 hover:text-blue-500 hover:bg-blue-50'}`}>
+                                                        <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleReorder(tx, -1); }} disabled={idx === 0} className={`p-0.5 rounded ${idx === 0 ? 'text-stone-200 cursor-not-allowed' : 'text-stone-400 hover:text-blue-500 hover:bg-blue-50'}`}>
                                                             <Icon name="chevron-up" size={14}/>
                                                         </button>
-                                                        <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleReorder(tx, 1); }} disabled={idx === group.txs.length - 1} className={`p-0.5 rounded ${idx === group.txs.length - 1 ? 'text-stone-200' : 'text-stone-400 hover:text-blue-500 hover:bg-blue-50'}`}>
+                                                        <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleReorder(tx, 1); }} disabled={idx === group.txs.length - 1} className={`p-0.5 rounded ${idx === group.txs.length - 1 ? 'text-stone-200 cursor-not-allowed' : 'text-stone-400 hover:text-blue-500 hover:bg-blue-50'}`}>
                                                             <Icon name="chevron-down" size={14}/>
                                                         </button>
                                                     </div>

@@ -77,7 +77,6 @@ export const TransactionModal = ({
                 <div className="grid grid-cols-3 gap-2 mb-4">
                     <button 
                         onClick={()=>{
-                            // ✨ 修改這裡：補上 toAccountId: '', toAmount: '' 徹底清空轉帳殘留
                             setTxForm({...txForm, type:'expense', category: categories['expense']?.[0]?.name || '', toAccountId: '', toAmount: ''});
                         }} 
                         className={`p-3 rounded-lg font-bold transition-colors ${txForm.type==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-500'}`}
@@ -86,7 +85,6 @@ export const TransactionModal = ({
                     </button>
                     <button 
                         onClick={()=>{
-                            // ✨ 修改這裡：補上 toAccountId: '', toAmount: '' 徹底清空轉帳殘留
                             setTxForm({...txForm, type:'income', category: categories['income']?.[0]?.name || '', toAccountId: '', toAmount: ''});
                         }} 
                         className={`p-3 rounded-lg font-bold transition-colors ${txForm.type==='income'?'bg-emerald-100 text-emerald-600':'bg-stone-100 text-stone-500'}`}
@@ -112,7 +110,7 @@ export const TransactionModal = ({
                                     <option value="">選擇帳戶</option>
                                     {accounts.filter(a => !a.isArchived || a.id === txForm.accountId).map(a=><option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}
                                 </select>
-                            </div>                                           
+                            </div>                                            
                             <div className="flex justify-center -my-1 z-10 relative">
                                 <div className="bg-stone-200 rounded-full p-1 border-2 border-white">
                                     <Icon name="arrow-down" size={16} className="text-stone-500"/>
@@ -124,7 +122,7 @@ export const TransactionModal = ({
                                     <option value="">選擇帳戶</option>
                                     {accounts.filter(a => !a.isArchived || a.id === txForm.toAccountId).map(a=><option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}
                                 </select>
-                            </div>                                           
+                            </div>                                            
                             {(() => {
                                 const sourceAcc = accounts.find(a => a.id === txForm.accountId);
                                 const targetAcc = accounts.find(a => a.id === txForm.toAccountId);
@@ -238,7 +236,7 @@ export const TransactionModal = ({
                                     );
                                 })()}
                             </div>
-                             {!isOffset ? (
+                            {!isOffset ? (
                                 <div className="w-full">
                                     <select className="w-full bg-stone-50 p-3 rounded-lg font-bold text-stone-700" value={txForm.accountId} onChange={e=>setTxForm({...txForm, accountId:e.target.value})}>
                                         <option value="">選擇帳戶</option>
@@ -272,7 +270,86 @@ export const TransactionModal = ({
                         <input type="date" className="bg-stone-50 p-3 rounded-lg flex-1 font-bold text-stone-700" value={txForm.date} onChange={e=>setTxForm({...txForm, date:e.target.value})} />
                         <div className="flex-[2] flex gap-1"><input className="bg-stone-50 p-3 rounded-lg w-full font-bold text-stone-700" placeholder="備註" value={txForm.note} onChange={e=>setTxForm({...txForm, note:e.target.value})} /><button onClick={handleVoiceInput} className="bg-stone-100 p-3 rounded-lg text-stone-500 hover:text-rose-500 hover:bg-rose-50 transition-colors"><Icon name="mic" size={20} /></button></div>
                     </div>
-                    {txForm.type === 'expense' && (<div className="space-y-2 pt-2 border-t border-stone-100"><label className="flex items-center justify-between p-2"><span className="text-sm font-bold text-stone-500">使用待收抵扣 (互抵)</span><input type="checkbox" checked={isOffset} onChange={e=>{ setIsOffset(e.target.checked); if(e.target.checked) { setIsAdvanceSplit(false); setInstallment({...installment, enabled: false}); } }} /></label>{!isOffset && (<React.Fragment><label className="flex items-center justify-between p-2"><span className="text-sm font-bold text-stone-500">分期付款</span><input type="checkbox" checked={installment.enabled} onChange={e=>setInstallment({...installment, enabled:e.target.checked})} /></label>{installment.enabled && <select className="w-full bg-white border p-2 rounded" value={installment.periods} onChange={e=>setInstallment({...installment, periods:e.target.value})}><option value="3">3 期</option><option value="6">6 期</option><option value="12">12 期</option></select>}<label className="flex items-center justify-between p-2"><span className="text-sm font-bold text-stone-500">代墊款 (多人)</span><input type="checkbox" checked={isAdvanceSplit} onChange={e=>setIsAdvanceSplit(e.target.checked)} /></label>{isAdvanceSplit && (<div className="p-2 bg-stone-50 rounded space-y-2">{splitData.advances.map((adv, idx) => (<div key={idx} className="flex gap-2"><input placeholder="對象" className="border p-2 rounded w-1/2 text-sm" value={adv.debtor} onChange={e=>updateAdvanceRow(idx, 'debtor', e.target.value)} /><input type="number" placeholder="金額" className="border p-2 rounded w-1/3 text-sm tabular-nums" value={adv.amount} onChange={e=>updateAdvanceRow(idx, 'amount', e.target.value)} />{splitData.advances.length > 1 && <button onClick={()=>removeAdvanceRow(idx)} className="text-red-500"><Icon name="x" size={16}/></button>}</div>))}<button onClick={addAdvanceRow} className="text-xs text-rose-600 font-bold flex items-center gap-1 p-1">+ 新增對象</button><div className="text-xs text-stone-400 text-right mt-1 tabular-nums border-t border-stone-200 pt-1">總代墊: ${splitData.advances.reduce((s,a)=>s+(parseFloat(a.amount)||0),0)} / 自付: ${Math.max(0, (parseFloat(txForm.amount)||0) - splitData.advances.reduce((s,a)=>s+(parseFloat(a.amount)||0),0))}</div></div>)}</React.Fragment>)}</div>)}
+                    
+                    {/* 💡 修正後的分期付款與擴充區塊 */}
+                    {txForm.type === 'expense' && (
+                        <div className="space-y-2 pt-2 border-t border-stone-100">
+                            <label className="flex items-center justify-between p-2 cursor-pointer">
+                                <span className="text-sm font-bold text-stone-500">使用待收抵扣 (互抵)</span>
+                                <input 
+                                    type="checkbox" 
+                                    checked={isOffset} 
+                                    onChange={e=>{ 
+                                        setIsOffset(e.target.checked); 
+                                        if(e.target.checked) { 
+                                            setIsAdvanceSplit(false); 
+                                            setInstallment(prev => ({ ...prev, enabled: false })); 
+                                        } 
+                                    }} 
+                                />
+                            </label>
+                            
+                            {!isOffset && (
+                                <React.Fragment>
+                                    <label className="flex items-center justify-between p-2 cursor-pointer">
+                                        <span className="text-sm font-bold text-stone-500">分期付款</span>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={installment?.enabled || false} 
+                                            onChange={e => setInstallment(prev => ({ ...prev, enabled: e.target.checked }))} 
+                                        />
+                                    </label>
+                                    
+                                    {/* 💡 美化並修正分期選擇器，確保正確轉成數字 */}
+                                    {installment?.enabled && (
+                                        <div className="p-3 bg-stone-50 rounded-xl space-y-2 border border-stone-200 animate-in fade-in">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-xs font-bold text-stone-500">選擇分期期數</span>
+                                                <select 
+                                                    className="bg-white border border-stone-300 p-2 rounded-lg font-bold text-sm text-stone-700 outline-none focus:border-rose-400" 
+                                                    value={installment?.periods || 3} 
+                                                    onChange={e => setInstallment(prev => ({ ...prev, periods: parseInt(e.target.value) || 3 }))}
+                                                >
+                                                    <option value={3}>3 期 (3個月)</option>
+                                                    <option value={6}>6 期 (6個月)</option>
+                                                    <option value={12}>12 期 (12個月)</option>
+                                                    <option value={18}>18 期 (18個月)</option>
+                                                    <option value={24}>24 期 (24個月)</option>
+                                                </select>
+                                            </div>
+                                            {parseFloat(txForm.amount) > 0 && (
+                                                <p className="text-[11px] text-stone-400 text-right font-bold tabular-nums">
+                                                    預計每月扣款: ≈ ${Math.round(parseFloat(txForm.amount) / (installment?.periods || 3)).toLocaleString()} / 月
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    <label className="flex items-center justify-between p-2 cursor-pointer">
+                                        <span className="text-sm font-bold text-stone-500">代墊款 (多人)</span>
+                                        <input type="checkbox" checked={isAdvanceSplit} onChange={e=>setIsAdvanceSplit(e.target.checked)} />
+                                    </label>
+                                    
+                                    {isAdvanceSplit && (
+                                        <div className="p-2 bg-stone-50 rounded space-y-2">
+                                            {splitData.advances.map((adv, idx) => (
+                                                <div key={idx} className="flex gap-2">
+                                                    <input placeholder="對象" className="border p-2 rounded w-1/2 text-sm" value={adv.debtor} onChange={e=>updateAdvanceRow(idx, 'debtor', e.target.value)} />
+                                                    <input type="number" placeholder="金額" className="border p-2 rounded w-1/3 text-sm tabular-nums" value={adv.amount} onChange={e=>updateAdvanceRow(idx, 'amount', e.target.value)} />
+                                                    {splitData.advances.length > 1 && <button onClick={()=>removeAdvanceRow(idx)} className="text-red-500"><Icon name="x" size={16}/></button>}
+                                                </div>
+                                            ))}
+                                            <button onClick={addAdvanceRow} className="text-xs text-rose-600 font-bold flex items-center gap-1 p-1">+ 新增對象</button>
+                                            <div className="text-xs text-stone-400 text-right mt-1 tabular-nums border-t border-stone-200 pt-1">
+                                                總代墊: ${splitData.advances.reduce((s,a)=>s+(parseFloat(a.amount)||0),0)} / 自付: ${Math.max(0, (parseFloat(txForm.amount)||0) - splitData.advances.reduce((s,a)=>s+(parseFloat(a.amount)||0),0))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </React.Fragment>
+                            )}
+                        </div>
+                    )}
+                    
                     {txForm.type === 'income' && (
                         <div className="space-y-2 pt-2 border-t border-stone-100">
                             <label className="flex items-center justify-between p-2 cursor-pointer">
@@ -303,6 +380,7 @@ export const TransactionModal = ({
                         </div>
                     )}
                 </div>
+                
                 <div className="flex gap-2 mt-6">
                     <button onClick={()=>setModal(null)} className="flex-1 bg-stone-100 py-3 rounded-xl font-bold text-stone-500">取消</button>
                     <button onClick={handleTxSave} className="flex-1 bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg shadow-rose-200">儲存</button>
