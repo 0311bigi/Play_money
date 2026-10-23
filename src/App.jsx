@@ -83,6 +83,22 @@ function App() {
     const dragItem = useRef(null);
     const dragOverItem = useRef(null);
 
+    // 💡 關鍵修復：定義補全 saveData 函式（並清空 undefined 防止 Firebase 拒絕寫入）
+    const saveData = async (col, data, id=null) => {
+        if (!user || !fbRef.current || !dbRef.current) return;
+        const ref = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
+        const cleanData = JSON.parse(JSON.stringify(data));
+        
+        if (id) {
+            await fbRef.current.updateDoc(fbRef.current.doc(ref, col, id), cleanData);
+        } else {
+            await fbRef.current.addDoc(fbRef.current.collection(ref, col), { 
+                ...cleanData, 
+                createdAt: cleanData.createdAt || new Date().toISOString() 
+            });
+        }
+    };
+
     const toggleReconcile = async (txId, currentStatus, e) => {
         e.stopPropagation();
         try {
@@ -321,11 +337,113 @@ function App() {
     useEffect(() => {
         if (user && sdkReady) autoFetchRates();
     }, [user, sdkReady]); 
+
+    // 💡 關鍵修復：整合並修復 handleTxSave (支援分期付款、代墊拆帳與普通記帳)
+    const handleTxSave = async () => { 
+        let finalAmtStr = String(txForm.amount || '');
+        try {
+            const cleanStr = finalAmtStr.replace(/[+\-*/.]+$/, ''); 
+            if (/[+\-*/]/.test(cleanStr)) {
+                const result = new Function('return ' + cleanStr)();
+                if (Number.isFinite(result)) finalAmtStr = result;
+            }
+        } catch(e) {}
         
-    const saveData = async (col, data, id=null) => {
-        const ref = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
-        if (id) await fbRef.current.updateDoc(fbRef.current.doc(ref, col, id), data);
-        else await fbRef.current.addDoc(fbRef.current.collection(ref, col), { ...data, createdAt: new Date().toISOString() });
+        const amt = parseFloat(finalAmtStr);
+        if (!amt) { alert('請輸入金額或完成計算'); return; }
+        if (!user) { alert('連線狀態異常，請重新整理網頁確保已登入！'); return; }
+
+        if (txForm.type === 'transfer') {
+            if (!txForm.accountId || !txForm.toAccountId) { alert('請選擇轉出與轉入帳戶'); return; }
+        } else {
+            if (!txForm.accountId && !isOffset) { alert('請選擇帳戶'); return; }
+        }
+
+        let finalCategory = txForm.category;
+        if (!finalCategory && txForm.type !== 'transfer') {
+            if (categories[txForm.type] && categories[txForm.type].length > 0) finalCategory = categories[txForm.type][0].name;
+            else finalCategory = '未分類';
+        } else if (txForm.type === 'transfer') finalCategory = '轉帳';
+        
+        const selectedAcc = accounts.find(a => a.id === txForm.accountId);
+        const currentRate = (selectedAcc && selectedAcc.currency !== 'TWD') ? (exchangeRates[selectedAcc.currency] || 1) : 1;
+
+        const currentInstallment = { ...installment };
+        const currentIsAdvanceSplit = isAdvanceSplit;
+        const currentSplitData = { ...splitData };
+
+        setModal(null);
+        setEditingTx(null);
+        setInstallment({ enabled: false, periods: 3 });
+        setIsAdvanceSplit(false);
+
+        const base = { 
+            ...txForm, 
+            bookId: currentBook.id, 
+            amount: amt, 
+            category: finalCategory, 
+            exchangeRate: currentRate
+        };
+
+        if (base.type !== 'transfer') {
+            delete base.toAccountId;
+            delete base.toAmount;
+        }
+
+        try {
+            if (editingTx) {
+                const cleanBase = { ...base }; delete cleanBase.id;
+                await saveData('transactions', cleanBase, editingTx.id);
+                return;
+            }
+
+            if (isOffset && offsetTargetId) {
+                await saveData('transactions', { ...base, accountId: OFFSET_ACCOUNT_ID, note: `抵扣: ${txForm.note}` }); 
+                await saveData('transactions', { type: 'repayment', amount: amt, accountId: OFFSET_ACCOUNT_ID, relatedTxId: offsetTargetId, date: txForm.date, bookId: currentBook.id, note: `抵扣支出 (${finalCategory})`, createdAt: new Date().toISOString() }); 
+                return;
+            }
+
+            // 💡 處理分期付款邏輯
+            if (txForm.type === 'expense' && currentInstallment && currentInstallment.enabled) {
+                const p = parseInt(currentInstallment.periods) || 3;
+                const per = Math.floor(amt / p);
+                const firstPer = amt - (per * (p - 1));
+                
+                const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
+                const batch = fbRef.current.writeBatch(dbRef.current);
+                const txCol = fbRef.current.collection(userRef, 'transactions');
+                const nowTime = new Date().getTime();
+
+                for (let i = 0; i < p; i++) {
+                    const newDocRef = fbRef.current.doc(txCol);
+                    const itemData = JSON.parse(JSON.stringify({
+                        ...base,
+                        amount: (i === 0 ? firstPer : per),
+                        date: addMonths(txForm.date, i),
+                        note: `${txForm.note ? txForm.note + ' ' : ''}(${i + 1}/${p}期)`,
+                        createdAt: new Date(nowTime + i * 200).toISOString()
+                    }));
+                    batch.set(newDocRef, itemData);
+                }
+
+                await batch.commit();
+            } else if (txForm.type === 'expense' && currentIsAdvanceSplit) {
+                let advTotal = 0; const promises = []; 
+                currentSplitData.advances.forEach(a => {
+                    if (a.debtor && a.amount) {
+                        promises.push(saveData('transactions', { ...base, type:'advance', amount: parseFloat(a.amount), debtor: a.debtor, isSettled: false, note: `代墊: ${txForm.note}`, createdAt: new Date().toISOString() }));
+                        advTotal += parseFloat(a.amount);
+                    }
+                });
+                if (amt - advTotal > 0) promises.push(saveData('transactions', { ...base, amount: amt - advTotal, createdAt: new Date().toISOString() }));
+                await Promise.all(promises); 
+            } else {
+                await saveData('transactions', base);
+            }
+        } catch (e) { 
+            console.error("儲存失敗詳情", e); 
+            alert("背景儲存發生異常: " + e.message);
+        }
     };
 
     const deleteData = async (col, id) => { 
@@ -433,151 +551,6 @@ function App() {
         homeFilter, analysisMode, analysisType, categories,
         viewingAccount, accountDetailMonth
     });
-
-    const handleTxSave = async () => { 
-        let finalAmtStr = String(txForm.amount || '');
-        try {
-            const cleanStr = finalAmtStr.replace(/[+\-*/.]+$/, ''); 
-            if (/[+\-*/]/.test(cleanStr)) {
-                const result = new Function('return ' + cleanStr)();
-                if (Number.isFinite(result)) finalAmtStr = result;
-            }
-        } catch(e) {}
-        
-        const amt = parseFloat(finalAmtStr);
-        if (!amt) { alert('請輸入金額或完成計算'); return; }
-        
-        if (!user) { alert('連線狀態異常，請重新整理網頁確保已登入！'); return; }
-
-        if (txForm.type === 'transfer') {
-            if (!txForm.accountId || !txForm.toAccountId) { alert('請選擇轉出與轉入帳戶'); return; }
-        } else {
-            if (!txForm.accountId && !isOffset) { alert('請選擇帳戶'); return; }
-        }
-
-        let finalCategory = txForm.category;
-        if (!finalCategory && txForm.type !== 'transfer') {
-            if (categories[txForm.type] && categories[txForm.type].length > 0) finalCategory = categories[txForm.type][0].name;
-            else finalCategory = '未分類';
-        } else if (txForm.type === 'transfer') finalCategory = '轉帳';
-        
-        const createdAt = (editingTx && editingTx.createdAt) ? editingTx.createdAt : new Date().toISOString();
-        const selectedAcc = accounts.find(a => a.id === txForm.accountId);
-        const currentRate = (selectedAcc && selectedAcc.currency !== 'TWD') ? (exchangeRates[selectedAcc.currency] || 1) : 1;
-
-        const base = { 
-            ...txForm, bookId: currentBook.id, amount: amt, category: finalCategory, 
-            createdAt, exchangeRate: currentRate
-        };
-
-        if (base.type !== 'transfer') {
-            delete base.toAccountId;
-            delete base.toAmount;
-        }
-
-        Object.keys(base).forEach(key => { if (base[key] === undefined) delete base[key]; });
-        delete base.balanceSnapshot; delete base.change; delete base.displayType; delete base.id; 
-
-        // 💡 1. 備份分期與拆帳狀態，避免狀態被重置後抓不到資料
-        const currentInstallment = { ...installment };
-        const currentIsAdvanceSplit = isAdvanceSplit;
-        const currentSplitData = { ...splitData };
-
-        setModal(null);
-        setEditingTx(null);
-        setInstallment({ enabled: false, periods: 3 });
-        setIsAdvanceSplit(false);
-
-        try {
-            if (editingTx) {
-                if (txForm.type === 'expense' && currentIsAdvanceSplit) {
-                    let advTotal = 0; const promises = [];
-                    const cleanBase = { ...base }; delete cleanBase.id;
-                    currentSplitData.advances.forEach(a => {
-                        if (a.debtor && a.amount) {
-                            promises.push(saveData('transactions', { ...cleanBase, type:'advance', amount: parseFloat(a.amount), debtor: a.debtor, isSettled: false, note: `代墊: ${txForm.note}`, createdAt: new Date().toISOString() }));
-                            advTotal += parseFloat(a.amount);
-                        }
-                    });
-                    promises.push(saveData('transactions', { ...cleanBase, amount: amt - advTotal }, editingTx.id));
-                    await Promise.all(promises);
-                } else {
-                    const cleanBase = { ...base }; delete cleanBase.id;
-                    await saveData('transactions', cleanBase, editingTx.id);
-                }
-                return;
-            }
-
-            if (isOffset && offsetTargetId) {
-                await saveData('transactions', { ...base, accountId: OFFSET_ACCOUNT_ID, note: `抵扣: ${txForm.note}` }); 
-                await saveData('transactions', { type: 'repayment', amount: amt, accountId: OFFSET_ACCOUNT_ID, relatedTxId: offsetTargetId, date: txForm.date, bookId: currentBook.id, note: `抵扣支出 (${finalCategory})`, createdAt: new Date().toISOString() }); 
-                return;
-            }
-
-            // 💡 2. 修復分期付款邏輯
-            if (txForm.type === 'expense' && currentInstallment && currentInstallment.enabled) {
-                const p = parseInt(currentInstallment.periods) || 3;
-                const per = Math.floor(amt / p);
-                const firstPer = amt - (per * (p - 1));
-                const promises = []; 
-                const nowTime = new Date().getTime();
-
-                for (let i = 0; i < p; i++) {
-                    promises.push(saveData('transactions', { 
-                        ...base, 
-                        amount: (i === 0 ? firstPer : per), 
-                        date: addMonths(txForm.date, i), 
-                        note: `${txForm.note ? txForm.note + ' ' : ''}(${i + 1}/${p}期)`, 
-                        createdAt: new Date(nowTime + i * 100).toISOString() 
-                    }));
-                }
-                await Promise.all(promises); 
-            } else if (txForm.type === 'expense' && currentIsAdvanceSplit) {
-                let advTotal = 0; const promises = []; 
-                currentSplitData.advances.forEach(a => {
-                    if (a.debtor && a.amount) {
-                        promises.push(saveData('transactions', { ...base, type:'advance', amount: parseFloat(a.amount), debtor: a.debtor, isSettled: false, note: `代墊: ${txForm.note}`, createdAt: new Date().toISOString() }));
-                        advTotal += parseFloat(a.amount);
-                    }
-                });
-                if (amt - advTotal > 0) promises.push(saveData('transactions', { ...base, amount: amt - advTotal, createdAt: new Date().toISOString() }));
-                await Promise.all(promises); 
-            } else if (txForm.type === 'income' && currentIsAdvanceSplit) {
-                const principal = parseFloat(currentSplitData.principalAmount) || 0;
-                const gain = amt - principal;
-                const promises = [];
-                if (principal > 0) promises.push(saveData('transactions', { ...base, type: 'transfer', amount: principal, category: '轉帳', accountId: currentSplitData.sourceAccountId, toAccountId: txForm.accountId, note: `投資本金`, createdAt: new Date().toISOString() }));
-                if (gain !== 0) promises.push(saveData('transactions', { ...base, type: 'income', amount: gain, category: txForm.category || '投資', note: `投資獲利`, createdAt: new Date().toISOString() }));
-                
-                if (currentSplitData.sourceAccountId && currentSplitData.sellSymbol && parseFloat(currentSplitData.sellQty) > 0) {
-                    const srcAcc = accounts.find(a => a.id === currentSplitData.sourceAccountId);
-                    if (srcAcc && srcAcc.holdings) {
-                        const sellQty = parseFloat(currentSplitData.sellQty);
-                        let updatedMarketValue = 0;
-                        const updatedHoldings = srcAcc.holdings.map(h => {
-                            if (h.symbol === currentSplitData.sellSymbol) {
-                                const newQty = Math.max(0, (parseFloat(h.qty) || 1) - sellQty);
-                                const newPrice = newQty > 0 ? ((parseFloat(h.price) || 0) * (newQty / (parseFloat(h.qty) || 1))).toFixed(2) : 0;
-                                updatedMarketValue += parseFloat(newPrice);
-                                return { ...h, qty: newQty.toString(), price: newPrice.toString() };
-                            }
-                            updatedMarketValue += (parseFloat(h.price) || 0);
-                            return h;
-                        });
-                        promises.push(fbRef.current.updateDoc(fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'accounts', srcAcc.id), {
-                            holdings: updatedHoldings, marketValue: updatedMarketValue
-                        }));
-                    }
-                }
-                await Promise.all(promises);
-            } else {
-                await saveData('transactions', base);
-            }
-        } catch (e) { 
-            console.error("儲存失敗", e); 
-            alert("背景儲存發生異常: " + e.message);
-        }
-    };
 
     const handleRecurringSave = async () => {
         if(!recForm.name || !recForm.amount) { alert("請輸入名稱與金額"); return; }
@@ -711,7 +684,7 @@ function App() {
                 subCategory: '',
                 accountId: viewingAccount?.id || accounts[0]?.id || '',
                 toAccountId: '', 
-                toAmount: '',    
+                toAmount: '',     
                 amount: '',
                 note: '',
                 date: getLocalToday(),
@@ -730,9 +703,10 @@ function App() {
     const changeDetailMonthStep = (step) => { const [y, m] = accountDetailMonth.split('-').map(Number); const date = new Date(y, m - 1 + step, 1); setAccountDetailMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`); };
     const handleEditMainCategoryName = async (newName) => { if (!newName || !editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].name = newName; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } };
     const handleEditMainCategoryIcon = async (newIcon) => { if (!editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].icon = newIcon; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } }; 
-    const openAccModalCorrect = (acc = null) => { if (acc) { setEditTarget(acc); setAccForm({ name: acc.name, type: acc.type, currency: acc.currency || 'TWD', initialBalance: acc.initialBalance || '', includeInTotal: acc.includeInTotal !== false, isArchived: acc.isArchived || false, closingDay: acc.closingDay || '27', paymentDueDay: acc.paymentDueDay || '15', autoPaymentAccount: acc.autoPaymentAccount || '', holidayAdjustment: acc.holidayAdjustment || 'defer', autoPayment: acc.autoPayment || false }); } else { setEditTarget(null); setAccForm({ name: '', type: 'cash', currency: 'TWD', initialBalance: '', includeInTotal: true, isArchived: false, closingDay: '27', paymentDueDay: '15', autoPaymentAccount: '', holidayAdjustment: 'defer', autoPayment: false }); } setModal('acc'); };       
+    const openAccModalCorrect = (acc = null) => { if (acc) { setEditTarget(acc); setAccForm({ name: acc.name, type: acc.type, currency: acc.currency || 'TWD', initialBalance: acc.initialBalance || '', includeInTotal: acc.includeInTotal !== false, isArchived: acc.isArchived || false, closingDay: acc.closingDay || '27', paymentDueDay: acc.paymentDueDay || '15', autoPaymentAccount: acc.autoPaymentAccount || '', holidayAdjustment: acc.holidayAdjustment || 'defer', autoPayment: acc.autoPayment || false }); } else { setEditTarget(null); setAccForm({ name: '', type: 'cash', currency: 'TWD', initialBalance: '', includeInTotal: true, isArchived: false, closingDay: '27', paymentDueDay: '15', autoPaymentAccount: '', holidayAdjustment: 'defer', autoPayment: false }); } setModal('acc'); };        
     
     const handleExport = () => {
+        if (!window.XLSX) return alert("報表模組載入中，請稍後再試！");
         if (transactions.length === 0) return alert("目前沒有交易紀錄可匯出");
         const currentYear = new Date().getFullYear().toString();
         const exportYear = window.prompt("請輸入要匯出的年份 (例如: 2024)\n若要匯出「全部紀錄」，請清空輸入框並按確定：", currentYear);
@@ -756,22 +730,23 @@ function App() {
             };
         });
 
-        const wb = XLSX.utils.book_new(); const ws = XLSX.utils.json_to_sheet(data);
+        const wb = window.XLSX.utils.book_new(); const ws = window.XLSX.utils.json_to_sheet(data);
         ws['!cols'] = [{wch: 12}, {wch: 6}, {wch: 10}, {wch: 10}, {wch: 10}, {wch: 15}, {wch: 15}, {wch: 10}, {wch: 20}, {wch: 10}];
-        XLSX.utils.book_append_sheet(wb, ws, "交易紀錄");
-        XLSX.writeFile(wb, `雲端帳本_${exportYear.trim() !== "" ? `${exportYear}年` : '全部'}_${getLocalToday()}.xlsx`);
+        window.XLSX.utils.book_append_sheet(wb, ws, "交易紀錄");
+        window.XLSX.writeFile(wb, `雲端帳本_${exportYear.trim() !== "" ? `${exportYear}年` : '全部'}_${getLocalToday()}.xlsx`);
     }; 
 
     const handleImportClick = () => { if (fileInputRef.current) fileInputRef.current.click(); };
     const handleImportFile = async (e) => {
         const file = e.target.files[0]; if (!file) return;
+        if (!window.XLSX) return alert("報表模組載入中，請稍後再試！");
         setIsImporting(true);
         const reader = new FileReader();
         reader.onload = async (evt) => {
             try {
-                const bstr = evt.target.result; const wb = XLSX.read(bstr, { type: 'binary' });
+                const bstr = evt.target.result; const wb = window.XLSX.read(bstr, { type: 'binary' });
                 const wsName = wb.SheetNames.includes("交易紀錄") ? "交易紀錄" : wb.SheetNames[0];
-                const jsonData = XLSX.utils.sheet_to_json(wb.Sheets[wsName], { raw: false });
+                const jsonData = window.XLSX.utils.sheet_to_json(wb.Sheets[wsName], { raw: false });
                 if (!jsonData || jsonData.length === 0) { alert("檔案內容為空"); setIsImporting(false); return; }
 
                 const batch = fbRef.current.writeBatch(dbRef.current);
