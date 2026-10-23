@@ -83,7 +83,6 @@ function App() {
     const dragItem = useRef(null);
     const dragOverItem = useRef(null);
 
-    // 💡 關鍵修復：定義補全 saveData 函式（並清空 undefined 防止 Firebase 拒絕寫入）
     const saveData = async (col, data, id=null) => {
         if (!user || !fbRef.current || !dbRef.current) return;
         const ref = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
@@ -338,7 +337,7 @@ function App() {
         if (user && sdkReady) autoFetchRates();
     }, [user, sdkReady]); 
 
-    // 💡 關鍵修復：整合並修復 handleTxSave (支援分期付款、代墊拆帳與普通記帳)
+    // 💡 關鍵修復：優先處理分期付款（包含新增與將舊交易修改為分期）
     const handleTxSave = async () => { 
         let finalAmtStr = String(txForm.amount || '');
         try {
@@ -391,28 +390,21 @@ function App() {
         }
 
         try {
-            if (editingTx) {
-                const cleanBase = { ...base }; delete cleanBase.id;
-                await saveData('transactions', cleanBase, editingTx.id);
-                return;
-            }
+            const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
+            const txCol = fbRef.current.collection(userRef, 'transactions');
 
-            if (isOffset && offsetTargetId) {
-                await saveData('transactions', { ...base, accountId: OFFSET_ACCOUNT_ID, note: `抵扣: ${txForm.note}` }); 
-                await saveData('transactions', { type: 'repayment', amount: amt, accountId: OFFSET_ACCOUNT_ID, relatedTxId: offsetTargetId, date: txForm.date, bookId: currentBook.id, note: `抵扣支出 (${finalCategory})`, createdAt: new Date().toISOString() }); 
-                return;
-            }
-
-            // 💡 處理分期付款邏輯
+            // 💡 修正處：只要是「支出」且勾選了「分期付款」（不管是全新新增或是修改既有交易）
             if (txForm.type === 'expense' && currentInstallment && currentInstallment.enabled) {
                 const p = parseInt(currentInstallment.periods) || 3;
                 const per = Math.floor(amt / p);
                 const firstPer = amt - (per * (p - 1));
-                
-                const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
                 const batch = fbRef.current.writeBatch(dbRef.current);
-                const txCol = fbRef.current.collection(userRef, 'transactions');
                 const nowTime = new Date().getTime();
+
+                // 如果是編輯舊交易，先把舊的那一筆刪除，再拆分成 N 筆分期
+                if (editingTx && editingTx.id) {
+                    batch.delete(fbRef.current.doc(userRef, 'transactions', editingTx.id));
+                }
 
                 for (let i = 0; i < p; i++) {
                     const newDocRef = fbRef.current.doc(txCol);
@@ -423,11 +415,31 @@ function App() {
                         note: `${txForm.note ? txForm.note + ' ' : ''}(${i + 1}/${p}期)`,
                         createdAt: new Date(nowTime + i * 200).toISOString()
                     }));
+                    delete itemData.id;
                     batch.set(newDocRef, itemData);
                 }
 
                 await batch.commit();
-            } else if (txForm.type === 'expense' && currentIsAdvanceSplit) {
+                return;
+            }
+
+            // 💡 一般「編輯」非分期交易
+            if (editingTx) {
+                const cleanBase = { ...base }; 
+                delete cleanBase.id;
+                await saveData('transactions', cleanBase, editingTx.id);
+                return;
+            }
+
+            // 💡 抵扣處理
+            if (isOffset && offsetTargetId) {
+                await saveData('transactions', { ...base, accountId: OFFSET_ACCOUNT_ID, note: `抵扣: ${txForm.note}` }); 
+                await saveData('transactions', { type: 'repayment', amount: amt, accountId: OFFSET_ACCOUNT_ID, relatedTxId: offsetTargetId, date: txForm.date, bookId: currentBook.id, note: `抵扣支出 (${finalCategory})`, createdAt: new Date().toISOString() }); 
+                return;
+            }
+
+            // 💡 代墊拆帳或一般新增
+            if (txForm.type === 'expense' && currentIsAdvanceSplit) {
                 let advTotal = 0; const promises = []; 
                 currentSplitData.advances.forEach(a => {
                     if (a.debtor && a.amount) {
