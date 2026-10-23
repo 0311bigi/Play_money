@@ -478,16 +478,22 @@ function App() {
         Object.keys(base).forEach(key => { if (base[key] === undefined) delete base[key]; });
         delete base.balanceSnapshot; delete base.change; delete base.displayType; delete base.id; 
 
-        // 🚀 先關閉視窗，提供極速流暢的反饋！
+        // 💡 1. 備份分期與拆帳狀態，避免狀態被重置後抓不到資料
+        const currentInstallment = { ...installment };
+        const currentIsAdvanceSplit = isAdvanceSplit;
+        const currentSplitData = { ...splitData };
+
         setModal(null);
         setEditingTx(null);
+        setInstallment({ enabled: false, periods: 3 });
+        setIsAdvanceSplit(false);
 
         try {
             if (editingTx) {
-                if (txForm.type === 'expense' && isAdvanceSplit) {
+                if (txForm.type === 'expense' && currentIsAdvanceSplit) {
                     let advTotal = 0; const promises = [];
                     const cleanBase = { ...base }; delete cleanBase.id;
-                    splitData.advances.forEach(a => {
+                    currentSplitData.advances.forEach(a => {
                         if (a.debtor && a.amount) {
                             promises.push(saveData('transactions', { ...cleanBase, type:'advance', amount: parseFloat(a.amount), debtor: a.debtor, isSettled: false, note: `代墊: ${txForm.note}`, createdAt: new Date().toISOString() }));
                             advTotal += parseFloat(a.amount);
@@ -508,25 +514,27 @@ function App() {
                 return;
             }
 
-            // 💡 修正後的分期邏輯：確保第一期補足無條件捨去帶來的金額誤差！
-            if (txForm.type === 'expense' && installment?.enabled) {
-                const p = parseInt(installment.periods) || 3;
-                const per = Math.round(amt / p);
+            // 💡 2. 修復分期付款邏輯
+            if (txForm.type === 'expense' && currentInstallment && currentInstallment.enabled) {
+                const p = parseInt(currentInstallment.periods) || 3;
+                const per = Math.floor(amt / p);
                 const firstPer = amt - (per * (p - 1));
                 const promises = []; 
+                const nowTime = new Date().getTime();
+
                 for (let i = 0; i < p; i++) {
                     promises.push(saveData('transactions', { 
                         ...base, 
                         amount: (i === 0 ? firstPer : per), 
                         date: addMonths(txForm.date, i), 
                         note: `${txForm.note ? txForm.note + ' ' : ''}(${i + 1}/${p}期)`, 
-                        createdAt: new Date().toISOString() 
+                        createdAt: new Date(nowTime + i * 100).toISOString() 
                     }));
                 }
                 await Promise.all(promises); 
-            } else if (txForm.type === 'expense' && isAdvanceSplit) {
+            } else if (txForm.type === 'expense' && currentIsAdvanceSplit) {
                 let advTotal = 0; const promises = []; 
-                splitData.advances.forEach(a => {
+                currentSplitData.advances.forEach(a => {
                     if (a.debtor && a.amount) {
                         promises.push(saveData('transactions', { ...base, type:'advance', amount: parseFloat(a.amount), debtor: a.debtor, isSettled: false, note: `代墊: ${txForm.note}`, createdAt: new Date().toISOString() }));
                         advTotal += parseFloat(a.amount);
@@ -534,20 +542,20 @@ function App() {
                 });
                 if (amt - advTotal > 0) promises.push(saveData('transactions', { ...base, amount: amt - advTotal, createdAt: new Date().toISOString() }));
                 await Promise.all(promises); 
-            } else if (txForm.type === 'income' && isAdvanceSplit) {
-                const principal = parseFloat(splitData.principalAmount) || 0;
+            } else if (txForm.type === 'income' && currentIsAdvanceSplit) {
+                const principal = parseFloat(currentSplitData.principalAmount) || 0;
                 const gain = amt - principal;
                 const promises = [];
-                if (principal > 0) promises.push(saveData('transactions', { ...base, type: 'transfer', amount: principal, category: '轉帳', accountId: splitData.sourceAccountId, toAccountId: txForm.accountId, note: `投資本金`, createdAt: new Date().toISOString() }));
+                if (principal > 0) promises.push(saveData('transactions', { ...base, type: 'transfer', amount: principal, category: '轉帳', accountId: currentSplitData.sourceAccountId, toAccountId: txForm.accountId, note: `投資本金`, createdAt: new Date().toISOString() }));
                 if (gain !== 0) promises.push(saveData('transactions', { ...base, type: 'income', amount: gain, category: txForm.category || '投資', note: `投資獲利`, createdAt: new Date().toISOString() }));
                 
-                if (splitData.sourceAccountId && splitData.sellSymbol && parseFloat(splitData.sellQty) > 0) {
-                    const srcAcc = accounts.find(a => a.id === splitData.sourceAccountId);
+                if (currentSplitData.sourceAccountId && currentSplitData.sellSymbol && parseFloat(currentSplitData.sellQty) > 0) {
+                    const srcAcc = accounts.find(a => a.id === currentSplitData.sourceAccountId);
                     if (srcAcc && srcAcc.holdings) {
-                        const sellQty = parseFloat(splitData.sellQty);
+                        const sellQty = parseFloat(currentSplitData.sellQty);
                         let updatedMarketValue = 0;
                         const updatedHoldings = srcAcc.holdings.map(h => {
-                            if (h.symbol === splitData.sellSymbol) {
+                            if (h.symbol === currentSplitData.sellSymbol) {
                                 const newQty = Math.max(0, (parseFloat(h.qty) || 1) - sellQty);
                                 const newPrice = newQty > 0 ? ((parseFloat(h.price) || 0) * (newQty / (parseFloat(h.qty) || 1))).toFixed(2) : 0;
                                 updatedMarketValue += parseFloat(newPrice);
@@ -694,7 +702,7 @@ function App() {
             setIsAdvanceSplit(false); 
             setIsOffset(false); 
             setSplitData({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' });
-            setInstallment({ enabled: false, periods: 3 }); // 💡 補上清空分期
+            setInstallment({ enabled: false, periods: 3 });
         } else {
             setEditingTx(null);
             setTxForm({
@@ -713,7 +721,7 @@ function App() {
             setIsAdvanceSplit(false); 
             setIsOffset(false); 
             setSplitData({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' });
-            setInstallment({ enabled: false, periods: 3 }); // 💡 補上清空分期
+            setInstallment({ enabled: false, periods: 3 });
         }
         setModal('tx');
     };
