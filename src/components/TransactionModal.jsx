@@ -86,6 +86,7 @@ export const TransactionModal = ({
                     <button 
                         onClick={()=>{
                             setTxForm({...txForm, type:'income', category: categories['income']?.[0]?.name || '', toAccountId: '', toAmount: ''});
+                            setInstallment({ enabled: false, periods: 3 });
                         }} 
                         className={`p-3 rounded-lg font-bold transition-colors ${txForm.type==='income'?'bg-emerald-100 text-emerald-600':'bg-stone-100 text-stone-500'}`}
                     >
@@ -94,6 +95,7 @@ export const TransactionModal = ({
                     <button 
                         onClick={()=>{
                             setTxForm({...txForm, type:'transfer', category: '轉帳'});
+                            setInstallment({ enabled: false, periods: 3 });
                         }} 
                         className={`p-3 rounded-lg font-bold transition-colors ${txForm.type==='transfer'?'bg-slate-200 text-slate-700':'bg-stone-100 text-stone-500'}`}
                     >
@@ -271,7 +273,7 @@ export const TransactionModal = ({
                         <div className="flex-[2] flex gap-1"><input className="bg-stone-50 p-3 rounded-lg w-full font-bold text-stone-700" placeholder="備註" value={txForm.note} onChange={e=>setTxForm({...txForm, note:e.target.value})} /><button onClick={handleVoiceInput} className="bg-stone-100 p-3 rounded-lg text-stone-500 hover:text-rose-500 hover:bg-rose-50 transition-colors"><Icon name="mic" size={20} /></button></div>
                     </div>
                     
-                    {/* 💡 修正後的分期付款與擴充區塊 */}
+                    {/* 💡 修正分期付款 State 綁定與互斥開關 */}
                     {txForm.type === 'expense' && (
                         <div className="space-y-2 pt-2 border-t border-stone-100">
                             <label className="flex items-center justify-between p-2 cursor-pointer">
@@ -280,10 +282,11 @@ export const TransactionModal = ({
                                     type="checkbox" 
                                     checked={isOffset} 
                                     onChange={e=>{ 
-                                        setIsOffset(e.target.checked); 
-                                        if(e.target.checked) { 
+                                        const checked = e.target.checked;
+                                        setIsOffset(checked); 
+                                        if(checked) { 
                                             setIsAdvanceSplit(false); 
-                                            setInstallment(prev => ({ ...prev, enabled: false })); 
+                                            setInstallment({ enabled: false, periods: 3 }); 
                                         } 
                                     }} 
                                 />
@@ -295,20 +298,32 @@ export const TransactionModal = ({
                                         <span className="text-sm font-bold text-stone-500">分期付款</span>
                                         <input 
                                             type="checkbox" 
-                                            checked={installment?.enabled || false} 
-                                            onChange={e => setInstallment(prev => ({ ...prev, enabled: e.target.checked }))} 
+                                            checked={!!(installment && installment.enabled)} 
+                                            onChange={e => {
+                                                const checked = e.target.checked;
+                                                setInstallment({
+                                                    enabled: checked,
+                                                    periods: (installment && installment.periods) ? installment.periods : 3
+                                                });
+                                                if (checked) {
+                                                    setIsAdvanceSplit(false); // 勾選分期時關閉多人代墊
+                                                }
+                                            }} 
                                         />
                                     </label>
                                     
-                                    {/* 💡 美化並修正分期選擇器，確保正確轉成數字 */}
-                                    {installment?.enabled && (
+                                    {/* 💡 分期期數選擇選單 */}
+                                    {installment && installment.enabled && (
                                         <div className="p-3 bg-stone-50 rounded-xl space-y-2 border border-stone-200 animate-in fade-in">
                                             <div className="flex items-center justify-between">
                                                 <span className="text-xs font-bold text-stone-500">選擇分期期數</span>
                                                 <select 
                                                     className="bg-white border border-stone-300 p-2 rounded-lg font-bold text-sm text-stone-700 outline-none focus:border-rose-400" 
-                                                    value={installment?.periods || 3} 
-                                                    onChange={e => setInstallment(prev => ({ ...prev, periods: parseInt(e.target.value) || 3 }))}
+                                                    value={installment.periods || 3} 
+                                                    onChange={e => {
+                                                        const p = parseInt(e.target.value) || 3;
+                                                        setInstallment({ enabled: true, periods: p });
+                                                    }}
                                                 >
                                                     <option value={3}>3 期 (3個月)</option>
                                                     <option value={6}>6 期 (6個月)</option>
@@ -319,7 +334,7 @@ export const TransactionModal = ({
                                             </div>
                                             {parseFloat(txForm.amount) > 0 && (
                                                 <p className="text-[11px] text-stone-400 text-right font-bold tabular-nums">
-                                                    預計每月扣款: ≈ ${Math.round(parseFloat(txForm.amount) / (installment?.periods || 3)).toLocaleString()} / 月
+                                                    預計每月扣款: ≈ ${Math.round(parseFloat(txForm.amount) / (installment.periods || 3)).toLocaleString()} / 月
                                                 </p>
                                             )}
                                         </div>
@@ -327,7 +342,17 @@ export const TransactionModal = ({
 
                                     <label className="flex items-center justify-between p-2 cursor-pointer">
                                         <span className="text-sm font-bold text-stone-500">代墊款 (多人)</span>
-                                        <input type="checkbox" checked={isAdvanceSplit} onChange={e=>setIsAdvanceSplit(e.target.checked)} />
+                                        <input 
+                                            type="checkbox" 
+                                            checked={isAdvanceSplit} 
+                                            onChange={e => {
+                                                const checked = e.target.checked;
+                                                setIsAdvanceSplit(checked);
+                                                if (checked) {
+                                                    setInstallment({ enabled: false, periods: 3 }); // 勾選代墊時關閉分期
+                                                }
+                                            }} 
+                                        />
                                     </label>
                                     
                                     {isAdvanceSplit && (
